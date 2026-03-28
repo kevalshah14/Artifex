@@ -10,7 +10,7 @@ import { MujocoSim } from './MujocoSim';
 import { ToolLoader } from './ToolLoader';
 import { getName } from './utils/StringUtils';
 
-const WS_URL = 'ws://localhost:8000/ws/sim';
+const WS_URL = import.meta.env.VITE_WS_URL ? `${import.meta.env.VITE_WS_URL}/ws/sim` : 'ws://localhost:8000/ws/sim';
 const RECONNECT_DELAY_MS = 3000;
 
 type CommandHandler = (cmd: Record<string, unknown>) => Promise<Record<string, unknown>>;

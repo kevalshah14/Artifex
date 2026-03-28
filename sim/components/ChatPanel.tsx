@@ -10,7 +10,7 @@ import { MujocoSim } from "../MujocoSim";
 
 // ─── WebSocket singleton for the agent backend ──────────────────────
 
-const WS_URL = "ws://localhost:8000/ws/chat";
+const WS_URL = import.meta.env.VITE_WS_URL ? `${import.meta.env.VITE_WS_URL}/ws/chat` : "ws://localhost:8000/ws/chat";
 
 class AgentConnection {
   private ws: WebSocket | null = null;
