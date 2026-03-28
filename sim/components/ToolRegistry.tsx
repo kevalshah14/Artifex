@@ -1,39 +1,6 @@
 import { useState } from "react";
 import { Wrench, Sparkles, ChevronDown } from "lucide-react";
-
-interface Tool {
-  name: string;
-  description: string;
-  code: string;
-}
-
-const PRIMITIVE_TOOLS: Tool[] = [
-  {
-    name: "move_to",
-    description: "Move end-effector to target XYZ position",
-    code: `def move_to(x: float, y: float, z: float) -> bool:\n    """Move robot end-effector to target position."""\n    return robot.ik_solve(target=[x, y, z])`,
-  },
-  {
-    name: "set_gripper",
-    description: "Open or close the parallel gripper",
-    code: `def set_gripper(state: str) -> bool:\n    """Set gripper state: 'open' or 'closed'."""\n    return robot.gripper.set(state)`,
-  },
-  {
-    name: "get_body_position",
-    description: "Get the 3D position of a named body",
-    code: `def get_body_position(name: str) -> tuple:\n    """Returns (x, y, z) world position of body."""\n    return sim.get_body_pos(name)`,
-  },
-  {
-    name: "detect_objects",
-    description: "Run vision model to detect objects in scene",
-    code: `def detect_objects(prompt: str) -> list:\n    """Detect objects matching prompt via Gemini."""\n    return vision.detect(prompt, mode="2d_bbox")`,
-  },
-  {
-    name: "pick_and_place",
-    description: "Pick object at source and place at target",
-    code: `def pick_and_place(src: tuple, dst: tuple) -> bool:\n    """Pick from src (x,y,z) and place at dst."""\n    return robot.pick(src).place(dst)`,
-  },
-];
+import { PRIMITIVE_TOOLS, type Tool } from "@/data/toolData";
 
 type TabType = "primitives" | "invented";
 

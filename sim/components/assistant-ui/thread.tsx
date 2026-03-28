@@ -23,6 +23,7 @@ import {
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  ArrowUpRightIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -124,13 +125,17 @@ const ThreadSuggestionItem: FC = () => {
         render={
           <Button
             variant="ghost"
-            className="aui-thread-welcome-suggestion h-auto w-full flex-col items-start justify-start gap-0.5 rounded-xl border border-zinc-800 bg-zinc-800/30 px-3.5 py-2.5 text-left text-sm transition-all hover:border-violet-500/30 hover:bg-zinc-800/60 hover:shadow-[0_0_12px_rgba(167,139,250,0.06)] text-zinc-200"
-          />
+            className="aui-thread-welcome-suggestion group relative flex h-auto w-full flex-col items-start justify-start gap-1 overflow-hidden rounded-2xl border border-zinc-800/80 bg-gradient-to-br from-zinc-900/60 to-zinc-950/80 px-4 py-3.5 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-violet-500/30 hover:shadow-[0_8px_24px_-8px_rgba(139,92,246,0.15)] focus:ring-2 focus:ring-violet-500/20"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-500/0 via-violet-500/0 to-violet-500/[0.03] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+            <div className="flex w-full items-center justify-between gap-2">
+              <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1 font-mono text-[11px] font-semibold tracking-widest text-zinc-300 transition-colors group-hover:text-violet-300 uppercase" />
+              <ArrowUpRightIcon className="h-3.5 w-3.5 text-zinc-600 transition-all duration-300 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-violet-400 shrink-0" />
+            </div>
+            <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 mt-0.5 line-clamp-2 w-[90%] text-[11.5px] leading-relaxed text-zinc-500 transition-colors group-hover:text-zinc-400 empty:hidden" />
+          </Button>
         }
-      >
-        <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1 font-medium text-xs text-zinc-300" />
-        <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 text-zinc-600 text-[11px] empty:hidden" />
-      </SuggestionPrimitive.Trigger>
+      />
     </div>
   );
 };
