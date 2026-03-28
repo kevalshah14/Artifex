@@ -2,6 +2,8 @@ import { GoogleGenAI } from "@google/genai";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
+  useAui,
+  Suggestions,
   type ChatModelAdapter,
 } from "@assistant-ui/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,6 +11,28 @@ import { Thread } from "@/components/assistant-ui/thread";
 import { MessageCircle, X } from "lucide-react";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+
+const SYSTEM_PROMPT = `You are an assistant for Artifex, an interactive robotics simulation environment. The user is working with:
+
+**Robot**: Franka Emika Panda — a 7-DOF robotic arm with a parallel gripper, simulated in real-time.
+
+**Simulation**: MuJoCo physics engine running in the browser via WebAssembly, rendered with Three.js. The robot operates on a tabletop scene with manipulable objects (cubes, blocks, etc.).
+
+**Detection Modes**: The user can analyze the scene using Google Gemini vision models with three detection types:
+- **2D Bounding Boxes**: Detects objects and returns labeled bounding boxes
+- **Segmentation Masks**: Returns per-object segmentation masks with bounding boxes
+- **Points**: Detects object center points for targeting
+
+**Pick-and-Place Workflow**:
+1. The user types a prompt describing objects to detect (e.g., "red cubes")
+2. The system captures a top-down snapshot of the scene
+3. Gemini analyzes the image and returns detected object locations
+4. The detected positions are projected from 2D image coordinates into 3D world coordinates
+5. The robot arm uses inverse kinematics to move to each target, pick it up with the gripper, and place it in a tray or stacking position
+
+**Controls**: The user can enable freeform IK mode to manually control the robot's end-effector position and orientation using a 3D gizmo, adjust simulation speed, pause/resume, and toggle dark mode.
+
+Help the user understand and use this simulation effectively. Answer questions about the robot, the detection pipeline, the pick-and-place workflow, and troubleshooting.`;
 
 const GeminiAdapter: ChatModelAdapter = {
   async *run({ messages, abortSignal }) {
@@ -24,7 +48,10 @@ const GeminiAdapter: ChatModelAdapter = {
     const response = await ai.models.generateContentStream({
       model: "gemini-2.5-flash",
       contents,
-      config: { abortSignal },
+      config: {
+        abortSignal,
+        systemInstruction: SYSTEM_PROMPT,
+      },
     });
 
     let text = "";
@@ -44,10 +71,35 @@ interface ChatPanelProps {
 export function ChatPanel({ isOpen, onClose, isDarkMode }: ChatPanelProps) {
   const runtime = useLocalRuntime(GeminiAdapter);
 
+  const aui = useAui({
+    suggestions: Suggestions([
+      {
+        title: "Scene Understanding",
+        label: "What objects are on the table?",
+        prompt: "What objects are on the table?",
+      },
+      {
+        title: "Robot Info",
+        label: "How does the Franka Panda robot work?",
+        prompt: "How does the Franka Panda robot work?",
+      },
+      {
+        title: "Pick & Place",
+        label: "Explain pick and place in robotics",
+        prompt: "Explain pick and place in robotics",
+      },
+      {
+        title: "Detection Modes",
+        label: "What detection modes are available?",
+        prompt: "What detection modes are available?",
+      },
+    ]),
+  });
+
   if (!isOpen) return null;
 
   return (
-    <AssistantRuntimeProvider runtime={runtime}>
+    <AssistantRuntimeProvider aui={aui} runtime={runtime}>
       <TooltipProvider>
         <div
           className={`absolute top-4 bottom-4 left-4 right-4 min-[660px]:right-auto min-[660px]:top-10 min-[660px]:left-10 min-[660px]:bottom-10 min-[660px]:w-[420px] rounded-[2.5rem] flex flex-col z-40 overflow-hidden shadow-2xl transition-all border ${
