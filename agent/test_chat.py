@@ -62,6 +62,36 @@ async def main(task: str):
                     print(f"\n🔄 EVOLVING — {event.get('message', '')}")
                     print(f"   Previous error: {event.get('error', '')[:200]}")
 
+                elif event_type == "auto_escalate":
+                    print(f"\n🚀 AUTO-ESCALATE: {event.get('message', '')}")
+
+                elif event_type == "evolution_start":
+                    print(f"\n🧬 EVOLUTION START [{event.get('mode', '')}]: {event.get('message', '')}")
+
+                elif event_type == "evolution_generation":
+                    print(f"\n🧬 Generation {event.get('iteration', '?')}/{event.get('total', '?')}")
+
+                elif event_type == "evolution_sampled":
+                    names = event.get("names", [])
+                    print(f"   Candidates: {', '.join(names)}")
+
+                elif event_type == "evolution_evaluating":
+                    print(f"   Evaluating: {event.get('candidate', '')} ({event.get('index', '?')}/{event.get('total', '?')})")
+
+                elif event_type == "evolution_scored":
+                    print(f"   Score: {event.get('candidate', '')} = {event.get('score', 0):.2f}")
+
+                elif event_type == "evolution_selected":
+                    winners = event.get("winners", [])
+                    winner_strs = [f"{w['name']} ({w['score']:.2f})" for w in winners]
+                    print(f"   Winners: {', '.join(winner_strs)}")
+
+                elif event_type == "evolution_complete":
+                    print(f"\n🏆 EVOLUTION COMPLETE: {event.get('winner', '')} (score: {event.get('score', 0):.2f})")
+
+                elif event_type == "evolution_converged":
+                    print(f"\n🎯 CONVERGED at generation {event.get('iteration', '?')}")
+
                 elif event_type == "retry":
                     attempt = event.get("attempt", 0)
                     max_r = event.get("max_retries", 3)
@@ -91,6 +121,9 @@ async def main(task: str):
 
                 elif event_type == "executing_skill":
                     print(f"\n⚡ Executing skill: {event.get('skill_name', '')}")
+
+                elif event_type == "done":
+                    print(f"\n🏁 DONE: {event.get('summary', '')}")
 
                 elif event_type == "step":
                     print(f"   Step {event.get('index', 0)}: {event.get('description', '')}")

@@ -1,22 +1,24 @@
 """
 ForgeBot Agent — the self-evolving brain that invents tools and skills.
 
-Three-layer capability hierarchy
+Four-layer capability hierarchy
 ─────────────────────────────────
   Primitives   Built-in robot actions (move_to, pick_up, …).  Never invented.
   Tools        Atomic async functions invented by the agent, composed from
                primitives (and other tools).  Reused across tasks.
   Skills       High-level multi-step strategies invented by the agent.
-               A skill orchestrates tools and primitives, and may trigger
-               the invention of new tools at creation time.  Also reused.
+  Evolution    VLMgineer-style population-based search that evolves code tools
+               or physical tool geometry (MJCF) through LLM-guided mutation
+               and crossover.  Auto-escalates from failed single-shot invention.
 
 Self-evolving lifecycle
 ───────────────────────
-  1. Plan   — LLM decides: reuse existing tool/skill, or invent new one
+  1. Plan    — LLM decides: reuse, invent, or evolve
   2. Execute — run the tool/skill
-  3. Retry  — if it fails, feed the error back to LLM and re-invent (max 3)
-  4. Persist — once a tool/skill works, save to disk (agent/memory/)
-  5. Reload — on next startup, all persisted tools/skills are loaded back
+  3. Retry   — if fail, feed error back to LLM (max 3)
+  4. Evolve  — if retries exhausted, escalate to population search
+  5. Persist — working tools/skills/geometry saved to disk
+  6. Reload  — on next startup, everything is loaded back
 """
 
 import json
@@ -24,13 +26,13 @@ import asyncio
 import os
 from typing import Optional
 
-from google import genai
-from google.genai import types
 from dotenv import load_dotenv
 
 from agent.primitives import PRIMITIVES
 from agent.tool_registry import registry, Tool
 from agent.skill_registry import skill_registry, Skill
+from agent.evolution import EvolutionEngine
+from agent.llm_client import generate as llm_generate
 
 # Load .env from sim folder or project root
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', 'sim', '.env'))
@@ -53,21 +55,6 @@ def init_primitives():
             description=info["description"],
         )
 
-
-# ──────────────────────────────────────────
-# LLM Client (Google Gemini)
-# ──────────────────────────────────────────
-
-_client = None
-
-def get_client():
-    global _client
-    if _client is None:
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not set. Add it to .env or export it.")
-        _client = genai.Client(api_key=api_key)
-    return _client
 
 
 # ──────────────────────────────────────────
@@ -103,7 +90,10 @@ YOUR DECISION PROCESS
   3. If a single existing TOOL covers the step    → action: execute
   4. If you need a new single atomic capability   → action: invent
   5. If the step is multi-step / complex          → action: create_skill
-     (create_skill may also invent supporting tools first)
+  6. If the task needs a PHYSICAL tool design      → action: evolve  (mode: geometry)
+     (robot needs a custom tool shape to reach/push/scoop/hook objects)
+  7. If previous attempts keep failing             → action: evolve  (mode: code)
+     (population search to find a working implementation)
 
 ════════════════════════════════════════
 IMPORTANT DATA FORMAT NOTES
@@ -190,6 +180,14 @@ RESPONSE FORMAT  (strict JSON, no markdown)
     "tools_used": ["helper_tool", "pick_up", "place_at"],
     "then_execute_with": {{}}
 }}
+
+── evolve a tool via population search ─
+{{
+    "thought": "I need to design a physical tool / previous code attempts failed...",
+    "action": "evolve",
+    "evolve_mode": "code|geometry",
+    "task_description": "What the evolved tool should accomplish"
+}}
 """
 
 
@@ -270,19 +268,15 @@ class ForgeBotAgent:
             await self._emit("llm_call", {"message": label})
 
             try:
-                response = await get_client().aio.models.generate_content(
+                raw = await llm_generate(
                     model=self.model,
                     contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system,
-                        temperature=0.2,
-                        response_mime_type="application/json",
-                    ),
+                    system_instruction=system,
+                    temperature=0.2,
+                    response_json=True,
                 )
             except Exception as e:
                 return {"error": f"LLM call failed: {e}", "success": False}
-
-            raw = response.text
             try:
                 plan = json.loads(raw)
             except json.JSONDecodeError:
@@ -336,7 +330,25 @@ class ForgeBotAgent:
                 })
 
                 if retries_this_step >= self.MAX_RETRIES:
-                    return {"success": False, "error": f"Failed after {self.MAX_RETRIES} retries: {error_msg}"}
+                    # Auto-escalate to evolution if we keep failing
+                    await self._emit("auto_escalate", {
+                        "message": f"Retries exhausted — escalating to evolution mode",
+                        "error": error_msg,
+                    })
+                    evolve_result = await self._handle_evolve({
+                        "evolve_mode": "code",
+                        "task_description": f"{user_message} (previous error: {error_msg})",
+                    })
+                    if evolve_result.get("success"):
+                        history.append({
+                            "role": "step_result",
+                            "action": "evolve",
+                            "name": evolve_result.get("candidate", {}).get("tool_name", "evolved"),
+                            "result": json.dumps(evolve_result, default=str)[:500],
+                        })
+                        retries_this_step = 0
+                        continue
+                    return {"success": False, "error": f"Evolution also failed: {evolve_result.get('error', 'unknown')}"}
             else:
                 # Successful step — add to history, reset retries
                 retries_this_step = 0
@@ -402,6 +414,8 @@ class ForgeBotAgent:
             return await self._handle_use_skill(plan)
         elif action == "create_skill":
             return await self._handle_create_skill(plan)
+        elif action == "evolve":
+            return await self._handle_evolve(plan)
         else:
             return {"error": f"Unknown action: {action}", "plan": plan}
 
@@ -474,6 +488,64 @@ class ForgeBotAgent:
         # Now execute it
         exec_args = plan.get("then_execute_with", {})
         return await self._execute_tool(tool_name, exec_args)
+
+    async def _handle_evolve(self, plan: dict) -> dict:
+        """Handle evolution: population-based search for code or geometry tools."""
+        mode = plan.get("evolve_mode", "code")
+        task_desc = plan.get("task_description", "")
+
+        engine = EvolutionEngine(model=self.model)
+        engine.on_event(self._event_callback)
+
+        if mode == "code":
+            result = await engine.evolve(
+                task=task_desc,
+                mode="code",
+                compile_fn=self._compile_tool,
+            )
+            # Register the winning code tool
+            if result.get("success"):
+                candidate = result["candidate"]
+                name = candidate.get("tool_name", "evolved_tool")
+                source = candidate.get("source_code", "")
+                try:
+                    fn = await self._compile_tool(name, source)
+                    registry.register_invented_tool(
+                        name=name,
+                        description=candidate.get("description", ""),
+                        signature=candidate.get("signature", f"{name}()"),
+                        source_code=source,
+                        composed_from=candidate.get("composed_from", []),
+                        fn=fn,
+                    )
+                    registry.save_tool(name)
+                    await self._emit("tool_registered", {
+                        "tool": {"name": name, "score": result["score"]},
+                        "message": f"Evolution winner registered: {name} (score: {result['score']:.2f})",
+                    })
+                except Exception as e:
+                    return {"error": f"Failed to register evolved tool: {e}"}
+            return result
+
+        elif mode == "geometry":
+            # For geometry mode, we need the sim eval function
+            from agent.primitives import send_command
+
+            async def sim_eval_fn(mjcf: str, waypoints: list) -> dict:
+                return await send_command({
+                    "action": "eval_tool",
+                    "tool_mjcf": mjcf,
+                    "waypoints": waypoints,
+                }, timeout=60.0)
+
+            result = await engine.evolve(
+                task=task_desc,
+                mode="geometry",
+                sim_eval_fn=sim_eval_fn,
+            )
+            return result
+
+        return {"error": f"Unknown evolve mode: {mode}"}
 
     async def _handle_execute(self, plan: dict) -> dict:
         """Execute an existing tool."""

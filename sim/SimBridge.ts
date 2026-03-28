@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import { MujocoSim } from './MujocoSim';
+import { ToolLoader } from './ToolLoader';
 import { getName } from './utils/StringUtils';
 
 const WS_URL = 'ws://localhost:8000/ws/sim';
@@ -17,6 +18,7 @@ type CommandHandler = (cmd: Record<string, unknown>) => Promise<Record<string, u
 export class SimBridge {
     private ws: WebSocket | null = null;
     private sim: MujocoSim | null = null;
+    private toolLoader: ToolLoader | null = null;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private disposed = false;
     private handlers: Record<string, CommandHandler> = {};
@@ -31,12 +33,14 @@ export class SimBridge {
             pick_up: (cmd) => this.handlePickUp(cmd),
             place_at: (cmd) => this.handlePlaceAt(cmd),
             step: (cmd) => this.handleStep(cmd),
+            eval_tool: (cmd) => this.handleEvalTool(cmd),
         };
     }
 
     /** Attach a live sim instance (call after sim.init resolves). */
     attach(sim: MujocoSim) {
         this.sim = sim;
+        this.toolLoader = new ToolLoader(sim);
         this.connect();
     }
 
@@ -265,5 +269,15 @@ export class SimBridge {
             sim.mujoco.mj_step(sim.mjModel, sim.mjData);
         }
         return { success: true, sim_time: sim.mjData.time };
+    }
+
+    private async handleEvalTool(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        if (!this.toolLoader) return { success: false, error: 'ToolLoader not initialized' };
+
+        const toolMjcf = cmd.tool_mjcf as string ?? '';
+        const waypoints = cmd.waypoints as number[][] ?? [];
+        const taskHint = cmd.task_hint as string ?? '';
+
+        return await this.toolLoader.evaluate(toolMjcf, waypoints, taskHint);
     }
 }
