@@ -537,7 +537,7 @@ export function App() {
         <div className="w-[42%] flex flex-col border-l border-zinc-800">
           {/* Chat panel — top 60% */}
           <div className="flex-[6] min-h-0 border-b border-zinc-800">
-            <ChatPanel />
+            <ChatPanel simRef={simRef} />
           </div>
           {/* Tool Registry — bottom 40% */}
           <div className="flex-[4] min-h-0 bg-zinc-900 overflow-hidden">

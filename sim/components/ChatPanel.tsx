@@ -8,61 +8,135 @@ import {
 } from "@assistant-ui/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Thread } from "@/components/assistant-ui/thread";
+import { useMemo, type RefObject } from "react";
+import { MujocoSim } from "../MujocoSim";
+import {
+  robotFunctionDeclarations,
+  executeRobotTool,
+} from "../robotTools";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-const SYSTEM_PROMPT = `You are an assistant for Artifex, an interactive robotics simulation environment. The user is working with:
+const SYSTEM_PROMPT = `You are the AI controller for Artifex, an interactive robotics simulation. You can directly control a Franka Emika Panda 7-DOF robotic arm via the tools provided.
 
-**Robot**: Franka Emika Panda — a 7-DOF robotic arm with a parallel gripper, simulated in real-time.
+**Environment**: A tabletop scene with coloured cubes simulated in MuJoCo (physics engine running in-browser). The robot has a parallel gripper.
 
-**Simulation**: MuJoCo physics engine running in the browser via WebAssembly, rendered with Three.js. The robot operates on a tabletop scene with manipulable objects (cubes, blocks, etc.).
+**How to work**:
+1. When asked to manipulate objects, ALWAYS call get_all_objects first to discover what's on the table, their names, positions, and colours.
+2. Use pick_up with the body name to grab an object. This runs the full approach-grasp-lift sequence automatically.
+3. Use place_at to move the arm somewhere and release the held object.
+4. For fine-grained control, use move_to and set_gripper individually.
+5. After completing actions, briefly confirm what you did.
 
-**Detection Modes**: The user can analyze the scene using Google Gemini vision models with three detection types:
-- **2D Bounding Boxes**: Detects objects and returns labeled bounding boxes
-- **Segmentation Masks**: Returns per-object segmentation masks with bounding boxes
-- **Points**: Detects object center points for targeting
+**Coordinate system**: X and Y are the horizontal plane (table surface), Z is up. The table center is roughly (0, 0, 0). Typical cube Z is ~0.02. Safe hover height is Z ≈ 0.15–0.25.
 
-**Pick-and-Place Workflow**:
-1. The user types a prompt describing objects to detect (e.g., "red cubes")
-2. The system captures a top-down snapshot of the scene
-3. Gemini analyzes the image and returns detected object locations
-4. The detected positions are projected from 2D image coordinates into 3D world coordinates
-5. The robot arm uses inverse kinematics to move to each target, pick it up with the gripper, and place it in a tray or stacking position
+**Object naming**: Objects are named like "cube0", "cube1", etc. Use get_all_objects to learn the mapping between names and colours.
 
-**Controls**: The user can enable freeform IK mode to manually control the robot's end-effector position and orientation using a 3D gizmo, adjust simulation speed, pause/resume.
+Be concise. When executing multi-step tasks (sorting, stacking), call tools sequentially — one pick_up, then one place_at, then the next object.`;
 
-Help the user understand and use this simulation effectively. Answer questions about the robot, the detection pipeline, the pick-and-place workflow, and troubleshooting.`;
+function createAdapter(
+  simRef: RefObject<MujocoSim | null>,
+): ChatModelAdapter {
+  return {
+    async *run({ messages, abortSignal }) {
+      // Build Gemini-compatible message history
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const contents: any[] = messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: m.content
+            .filter((p) => p.type === "text")
+            .map((p) => ({ text: p.type === "text" ? p.text : "" })),
+        }));
 
-const GeminiAdapter: ChatModelAdapter = {
-  async *run({ messages, abortSignal }) {
-    const contents = messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: m.content
-          .filter((p) => p.type === "text")
-          .map((p) => ({ text: p.type === "text" ? p.text : "" })),
-      }));
-
-    const response = await ai.models.generateContentStream({
-      model: "gemini-2.5-flash",
-      contents,
-      config: {
-        abortSignal,
+      const toolsConfig = {
+        tools: [{ functionDeclarations: robotFunctionDeclarations }],
         systemInstruction: SYSTEM_PROMPT,
-      },
-    });
+        abortSignal,
+      };
 
-    let text = "";
-    for await (const chunk of response) {
-      text += chunk.text ?? "";
-      yield { content: [{ type: "text" as const, text }] };
-    }
-  },
-};
+      // Multi-turn tool-use loop: keep calling until the model produces text
+      const MAX_TOOL_ROUNDS = 15;
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents,
+          config: toolsConfig,
+        });
 
-export function ChatPanel() {
-  const runtime = useLocalRuntime(GeminiAdapter);
+        const functionCalls = response.functionCalls;
+        if (!functionCalls || functionCalls.length === 0) {
+          // No tool calls — stream the final text back
+          const text = response.text ?? "";
+          yield { content: [{ type: "text" as const, text }] };
+          return;
+        }
+
+        // Execute each function call and collect responses
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const functionResponseParts: any[] = [];
+
+        for (const fc of functionCalls) {
+          // Yield a progress update so the user sees activity
+          yield {
+            content: [
+              {
+                type: "text" as const,
+                text: `\u200B\n\n⏳ *Executing ${fc.name}*...\n\n`,
+              },
+            ],
+          };
+
+          const sim = simRef.current;
+          let result: Record<string, unknown>;
+          if (sim) {
+            result = await executeRobotTool(
+              sim,
+              fc.name,
+              (fc.args as Record<string, unknown>) ?? {},
+            );
+          } else {
+            result = { success: false, error: "Simulation not available" };
+          }
+
+          functionResponseParts.push({
+            functionResponse: {
+              name: fc.name,
+              response: { result },
+              id: fc.id,
+            },
+          });
+        }
+
+        // Append the model's response (with function calls) to history
+        contents.push(response.candidates![0].content);
+        // Append function results so the model can see them
+        contents.push({ role: "user", parts: functionResponseParts });
+      }
+
+      // Fell through MAX_TOOL_ROUNDS — generate a final text response
+      const finalResponse = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents,
+        config: toolsConfig,
+      });
+      yield {
+        content: [
+          { type: "text" as const, text: finalResponse.text ?? "" },
+        ],
+      };
+    },
+  };
+}
+
+interface ChatPanelProps {
+  simRef: RefObject<MujocoSim | null>;
+}
+
+export function ChatPanel({ simRef }: ChatPanelProps) {
+  const adapter = useMemo(() => createAdapter(simRef), [simRef]);
+  const runtime = useLocalRuntime(adapter);
 
   const aui = useAui({
     suggestions: Suggestions([
@@ -77,9 +151,9 @@ export function ChatPanel() {
         prompt: "Stack all objects by color",
       },
       {
-        title: "Move Gripper",
-        label: "Move the gripper to position (0.3, 0, 0.4)",
-        prompt: "Move the gripper to position (0.3, 0, 0.4)",
+        title: "Pick Up",
+        label: "Pick up a red cube",
+        prompt: "Pick up one of the red cubes",
       },
       {
         title: "Scene Understanding",
