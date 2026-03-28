@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { v4 as uuidv4 } from 'uuid';
 import { MujocoSim } from './MujocoSim';
+import { ChatPanel } from './components/ChatPanel';
 import { RobotSelector } from './components/RobotSelector';
 import { Toolbar } from './components/Toolbar';
 import { UnifiedSidebar } from './components/UnifiedSidebar';
@@ -96,6 +97,7 @@ export function App() {
   const [isPaused, setIsPaused] = useState(false);
   // Initialize sidebar based on screen width (hidden on mobile by default)
   const [showSidebar, setShowSidebar] = useState(() => window.innerWidth >= 660); 
+  const [showChat, setShowChat] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   
   const [erLoading, setErLoading] = useState(false);
@@ -478,6 +480,8 @@ export function App() {
             onReset={handleReset} 
             showSidebar={showSidebar}
             toggleSidebar={() => setShowSidebar(!showSidebar)}
+            showChat={showChat}
+            toggleChat={() => setShowChat(!showChat)}
             isDarkMode={isDarkMode}
             toggleDarkMode={toggleDarkMode}
           />
@@ -494,6 +498,12 @@ export function App() {
             isDarkMode={isDarkMode}
             isPickingUp={isPickingUp}
             playbackSpeed={playbackSpeed}
+          />
+
+          <ChatPanel
+            isOpen={showChat}
+            onClose={() => setShowChat(false)}
+            isDarkMode={isDarkMode}
           />
 
           {/* Expanded View Modal - Overlay everything */}

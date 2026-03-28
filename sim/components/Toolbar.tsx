@@ -4,7 +4,7 @@
 */
 
 
-import { Moon, PanelRight, Pause, Play, RotateCcw, Sun } from 'lucide-react';
+import { MessageCircle, Moon, PanelRight, Pause, Play, RotateCcw, Sun } from 'lucide-react';
 
 interface ToolbarProps {
   isPaused: boolean; 
@@ -12,6 +12,8 @@ interface ToolbarProps {
   onReset: () => void;
   showSidebar: boolean;
   toggleSidebar: () => void;
+  showChat: boolean;
+  toggleChat: () => void;
   isDarkMode: boolean;
   toggleDarkMode: () => void;
 }
@@ -26,6 +28,8 @@ export function Toolbar({
   onReset,
   showSidebar,
   toggleSidebar,
+  showChat,
+  toggleChat,
   isDarkMode,
   toggleDarkMode
 }: ToolbarProps) {
@@ -60,6 +64,15 @@ export function Toolbar({
         title={isDarkMode ? "Light Mode" : "Dark Mode"}
       >
         {isDarkMode ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
+      </button>
+
+      {/* Chat Toggle */}
+      <button 
+        onClick={toggleChat} 
+        className={`w-14 h-14 rounded-2xl glass-panel flex items-center justify-center transition-all hover:scale-105 active:scale-95 shadow-xl ${showChat ? (isDarkMode ? 'text-indigo-400 bg-slate-800' : 'text-indigo-600 bg-white') : panelStyle}`}
+        title="Toggle Chat Panel"
+      >
+        <MessageCircle className="w-6 h-6" />
       </button>
 
       {/* Sidebar Toggle */}
