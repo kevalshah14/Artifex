@@ -93,7 +93,18 @@ export function ChatPanel() {
     <AssistantRuntimeProvider aui={aui} runtime={runtime}>
       <TooltipProvider>
         <div className="flex flex-col h-full w-full bg-zinc-900 text-zinc-100">
-          <div className="flex-1 min-h-0">
+          {/* Chat header */}
+          <div className="px-4 py-2.5 border-b border-zinc-800 flex items-center gap-2 shrink-0 bg-zinc-900/80">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-mono font-bold tracking-widest text-zinc-400">
+              CHAT
+            </span>
+            <span className="ml-auto text-[10px] font-mono text-zinc-600">
+              gemini-2.5-flash
+            </span>
+          </div>
+          {/* Thread */}
+          <div className="flex-1 min-h-0 dark">
             <Thread />
           </div>
         </div>
