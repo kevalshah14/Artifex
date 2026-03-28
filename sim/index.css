@@ -133,3 +133,94 @@
     @apply font-sans;
   }
 }
+
+/* === Chat Panel / assistant-ui dark mode overrides === */
+
+/* Welcome text */
+.dark .aui-thread-welcome-message-inner {
+  color: oklch(0.95 0 0);
+}
+.dark .aui-thread-welcome-message-inner + p,
+.dark .aui-thread-welcome-message .text-muted-foreground {
+  color: oklch(0.6 0 0);
+}
+
+/* Assistant message text */
+.dark .aui-assistant-message-content {
+  color: oklch(0.9 0 0);
+}
+
+/* Action bar icons in dark mode */
+.dark .aui-assistant-action-bar-root,
+.dark .aui-user-action-bar-root,
+.dark .aui-branch-picker-root {
+  color: oklch(0.55 0 0);
+}
+
+/* Markdown code blocks */
+.dark .aui-md-pre {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark .aui-code-header-root {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.dark .aui-md-inline-code {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Markdown links */
+.dark .aui-md-a {
+  color: oklch(0.7 0.15 264);
+}
+
+/* Markdown blockquote */
+.dark .aui-md-blockquote {
+  border-color: rgba(255, 255, 255, 0.15);
+  color: oklch(0.65 0 0);
+}
+
+/* Markdown table header */
+.dark .aui-md-th {
+  background: rgba(255, 255, 255, 0.06);
+}
+.dark .aui-md-td {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Scrollbar in dark chat panel */
+.dark .aui-thread-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+.dark .aui-thread-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Error message dark mode */
+.dark .aui-message-error-root {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: oklch(0.85 0.12 22);
+}
+
+/* Action bar popover in dark mode */
+.dark .aui-action-bar-more-content {
+  background: oklch(0.2 0 0);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: oklch(0.9 0 0);
+}
+.dark .aui-action-bar-more-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Scroll-to-bottom button dark mode */
+.dark .aui-thread-scroll-to-bottom {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: oklch(0.8 0 0);
+}
+.dark .aui-thread-scroll-to-bottom:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
