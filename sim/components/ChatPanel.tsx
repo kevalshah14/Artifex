@@ -15,41 +15,41 @@ function formatEvent(data: Record<string, unknown>): string | null {
   const t = data.type as string;
   switch (t) {
     case "thinking":
-      return `**Thinking** — ${data.message}`;
+      return `> 🧠 **Thinking**\n> ${data.message}`;
     case "llm_call":
-      return `**LLM** — ${data.message}`;
+      return `> 🤖 **LLM**\n> ${data.message}`;
     case "plan":
-      return `**Plan** (step ${data.step}) — ${data.thought}\n> action: \`${data.action}\`${data.tool_name ? ` → \`${data.tool_name}\`` : ""}`;
+      return `> 📝 **Plan** (step ${data.step})\n> ${data.thought}\n> action: \`${data.action}\`${data.tool_name ? ` → \`${data.tool_name}\`` : ""}`;
     case "executing":
-      return `**Executing** \`${data.tool_name}\`…`;
+      return `> ⚙️ **Executing** \`${data.tool_name}\`...`;
     case "executing_skill":
-      return `**Executing skill** \`${data.skill_name}\`…`;
+      return `> ⚙️ **Executing skill** \`${data.skill_name}\`...`;
     case "result":
     case "skill_result": {
       const r = data.result as Record<string, unknown> | undefined;
       const name = data.tool_name ?? data.skill_name ?? "?";
       const preview = r ? JSON.stringify(r).slice(0, 200) : "";
-      return `**Result** \`${name}\` — \`${preview}\``;
+      return `> ✅ **Result** \`${name}\`\n> \`${preview}\``;
 
     }
     case "retry":
-      return `**Retry** ${data.attempt}/${data.max_retries} — ${(data.error as string ?? "").slice(0, 150)}`;
+      return `> 🔄 **Retry** ${data.attempt}/${data.max_retries}\n> ${(data.error as string ?? "").slice(0, 150)}`;
     case "inventing":
-      return `**Inventing tool** \`${data.tool_name}\``;
+      return `> 💡 **Inventing tool** \`${data.tool_name}\``;
     case "creating_skill":
-      return `**Creating skill** \`${data.skill_name}\``;
+      return `> 💡 **Creating skill** \`${data.skill_name}\``;
     case "tool_registered":
-      return `**Registered** \`${(data.tool as Record<string, unknown>)?.name ?? "tool"}\``;
+      return `> 📦 **Registered tool** \`${(data.tool as Record<string, unknown>)?.name ?? "tool"}\``;
     case "skill_registered":
-      return `**Registered skill** \`${(data.skill as Record<string, unknown>)?.name ?? "skill"}\``;
+      return `> 📦 **Registered skill** \`${(data.skill as Record<string, unknown>)?.name ?? "skill"}\``;
     case "evolving":
-      return `**Evolving** — ${data.message}`;
+      return `> 🧬 **Evolving**\n> ${data.message}`;
     case "auto_escalate":
-      return `**Auto-escalate** — ${data.message}`;
+      return `> ⚠️ **Auto-escalate**\n> ${data.message}`;
     case "error":
-      return `**Error** — ${data.message}`;
+      return `> ❌ **Error**\n> ${data.message}`;
     case "done":
-      return `**Done** — ${data.summary ?? data.message ?? ""}`;
+      return `> 🎉 **Done**\n> ${data.summary ?? data.message ?? ""}`;
     default:
       return null;
   }
