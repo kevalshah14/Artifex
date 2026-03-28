@@ -233,38 +233,41 @@ class ForgeBotAgent:
             await self._event_callback(event_type, data)
 
     # ──────────────────────────────────────────
-    # Main entry point — with retry loop
+    # Main entry point — multi-step agentic loop
     # ──────────────────────────────────────────
 
+    MAX_STEPS = 10       # max actions per task (prevents infinite loops)
+    MAX_RETRIES = 3      # max retries per failed step
+
     async def handle_task(self, user_message: str) -> dict:
-        """Main entry point: plan → execute → retry on failure → persist on success."""
+        """
+        Multi-step agentic loop:
+          1. LLM picks an action
+          2. Execute it
+          3. If fail → retry with error context (up to MAX_RETRIES)
+          4. If succeed → feed result back, LLM picks next action
+          5. LLM says "done" → persist artifacts, return
+        """
         await self._emit("thinking", {"message": f"Analyzing task: {user_message}"})
 
-        error_context = None
+        # Conversation history for multi-step context
+        history: list[dict] = []
+        retries_this_step = 0
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            # Build prompt with current tool + skill state
+        for step in range(1, self.MAX_STEPS + 1):
+            # Build prompt with current capabilities
             system = SYSTEM_PROMPT.format(
                 tool_descriptions=registry.get_tool_descriptions(),
                 skill_descriptions=skill_registry.get_skill_descriptions(),
             )
 
-            # Build the user message — include error feedback on retries
-            if error_context:
-                await self._emit("evolving", {
-                    "attempt": attempt,
-                    "max_retries": MAX_RETRIES,
-                    "message": f"Attempt {attempt}/{MAX_RETRIES} — fixing previous error...",
-                    "error": error_context["error"],
-                })
-                contents = RETRY_PROMPT.format(**error_context)
-            else:
-                contents = user_message
+            # Build conversation contents
+            contents = self._build_contents(user_message, history)
 
-            # Call LLM
-            await self._emit("llm_call", {
-                "message": f"Planning approach..." if attempt == 1 else f"Re-planning (attempt {attempt}/{MAX_RETRIES})...",
-            })
+            label = "Planning approach..." if step == 1 and retries_this_step == 0 else f"Step {step}..."
+            if retries_this_step > 0:
+                label = f"Retrying (attempt {retries_this_step + 1}/{self.MAX_RETRIES})..."
+            await self._emit("llm_call", {"message": label})
 
             try:
                 response = await get_client().aio.models.generate_content(
@@ -283,13 +286,10 @@ class ForgeBotAgent:
             try:
                 plan = json.loads(raw)
             except json.JSONDecodeError:
-                error_context = {
-                    "action": "parse",
-                    "name": "LLM response",
-                    "error": f"Invalid JSON from LLM: {raw[:200]}",
-                    "source_context": "",
-                    "original_task": user_message,
-                }
+                history.append({"role": "error", "content": f"Invalid JSON: {raw[:300]}"})
+                retries_this_step += 1
+                if retries_this_step >= self.MAX_RETRIES:
+                    return {"error": "LLM returned invalid JSON after retries", "success": False}
                 continue
 
             action = plan.get("action", "")
@@ -297,47 +297,100 @@ class ForgeBotAgent:
                 "thought": plan.get("thought", ""),
                 "action": action,
                 "tool_name": plan.get("tool_name") or plan.get("skill_name", ""),
-                "attempt": attempt,
+                "step": step,
             })
 
-            # Route based on action
+            # ── "done" action — task is complete ──
+            if action == "done":
+                await self._emit("done", {
+                    "summary": plan.get("summary", ""),
+                    "message": "Task complete",
+                })
+                # Persist all invented artifacts from this session
+                self._persist_all_invented()
+                return {"success": True, "summary": plan.get("summary", "")}
+
+            # ── Execute the action ──
             result = await self._route_action(action, plan)
 
-            # Check if it succeeded
-            succeeded = result.get("success", False)
-            has_error = "error" in result
+            # Extract error from nested result
+            error_msg = self._extract_error(result)
 
-            if succeeded and not has_error:
-                # Persist any newly invented tools/skills
+            if error_msg:
+                # Failed step
+                retries_this_step += 1
+                await self._emit("retry", {
+                    "attempt": retries_this_step,
+                    "max_retries": self.MAX_RETRIES,
+                    "error": error_msg,
+                    "message": f"Step failed — {'retrying' if retries_this_step < self.MAX_RETRIES else 'giving up'}",
+                })
+
+                source_code = plan.get("source_code", "") or plan.get("skill_source_code", "")
+                history.append({
+                    "role": "step_error",
+                    "action": action,
+                    "name": plan.get("tool_name") or plan.get("skill_name", ""),
+                    "error": error_msg,
+                    "source_code": source_code,
+                })
+
+                if retries_this_step >= self.MAX_RETRIES:
+                    return {"success": False, "error": f"Failed after {self.MAX_RETRIES} retries: {error_msg}"}
+            else:
+                # Successful step — add to history, reset retries
+                retries_this_step = 0
+                # Persist any newly invented artifacts immediately
                 self._persist_new_artifacts(action, plan)
-                return result
 
-            # Failed — build error context for retry
-            error_msg = result.get("error", "Unknown error")
-            source_code = plan.get("source_code", "")
-            if not source_code and action == "create_skill":
-                source_code = plan.get("skill_source_code", "")
+                result_summary = json.dumps(result, default=str)[:500]
+                history.append({
+                    "role": "step_result",
+                    "action": action,
+                    "name": plan.get("tool_name") or plan.get("skill_name", ""),
+                    "result": result_summary,
+                })
 
-            error_context = {
-                "action": action,
-                "name": plan.get("tool_name") or plan.get("skill_name", "unknown"),
-                "error": error_msg,
-                "source_context": f"Source code that failed:\n{source_code}" if source_code else "",
-                "original_task": user_message,
-            }
+        return {"success": False, "error": f"Reached max steps ({self.MAX_STEPS}) without completing task"}
 
-            await self._emit("retry", {
-                "attempt": attempt,
-                "max_retries": MAX_RETRIES,
-                "error": error_msg,
-                "message": f"Failed on attempt {attempt} — will retry" if attempt < MAX_RETRIES else f"Failed after {MAX_RETRIES} attempts",
-            })
+    def _build_contents(self, original_task: str, history: list[dict]) -> str:
+        """Build the LLM prompt including step history."""
+        parts = [f"TASK: {original_task}"]
 
-        # All retries exhausted
-        return {
-            "success": False,
-            "error": f"Failed after {MAX_RETRIES} attempts. Last error: {error_context['error'] if error_context else 'unknown'}",
-        }
+        for entry in history:
+            role = entry["role"]
+            if role == "step_result":
+                parts.append(f"\n--- Step completed: {entry['action']} ({entry['name']}) ---")
+                parts.append(f"Result: {entry['result']}")
+            elif role == "step_error":
+                parts.append(f"\n--- Step FAILED: {entry['action']} ({entry['name']}) ---")
+                parts.append(f"Error: {entry['error']}")
+                if entry.get("source_code"):
+                    parts.append(f"Failed source code:\n{entry['source_code']}")
+                parts.append("Fix the issue and try a different approach.")
+            elif role == "error":
+                parts.append(f"\nError: {entry['content']}")
+
+        if history:
+            parts.append("\nWhat is the next action? If the task is fully done, use action: done.")
+
+        return "\n".join(parts)
+
+    @staticmethod
+    def _extract_error(result: dict) -> Optional[str]:
+        """Extract error message from a result dict, checking nested levels."""
+        if "error" in result:
+            return result["error"]
+        # Check nested result (e.g. from _execute_tool wrapping)
+        inner = result.get("result", {})
+        if isinstance(inner, dict):
+            if "error" in inner:
+                return inner["error"]
+            if inner.get("success") is False:
+                return inner.get("error", f"Tool returned success=false: {json.dumps(inner)[:200]}")
+        if result.get("success") is False:
+            return f"Action returned success=false"
+        return None
 
     async def _route_action(self, action: str, plan: dict) -> dict:
         """Route a plan to the correct handler."""
@@ -353,24 +406,32 @@ class ForgeBotAgent:
             return {"error": f"Unknown action: {action}", "plan": plan}
 
     def _persist_new_artifacts(self, action: str, plan: dict):
-        """Persist any tools/skills created during this action."""
+        """Persist any tools/skills created during this specific action."""
         if action == "invent":
             name = plan.get("tool_name", "")
             if name and registry.has_tool(name):
                 registry.save_tool(name)
                 print(f"[forgebot] 💾 Persisted tool: {name}")
         elif action == "create_skill":
-            # Persist supporting tools
             for tool_spec in plan.get("new_tools", []):
-                tname = tool_spec.get("tool_name", "")
-                if tname and registry.has_tool(tname):
-                    registry.save_tool(tname)
-                    print(f"[forgebot] 💾 Persisted supporting tool: {tname}")
-            # Persist the skill
-            sname = plan.get("skill_name", "")
-            if sname and skill_registry.has_skill(sname):
-                skill_registry.save_skill(sname)
-                print(f"[forgebot] 💾 Persisted skill: {sname}")
+                tool_name = tool_spec.get("tool_name", "")
+                if tool_name and registry.has_tool(tool_name):
+                    registry.save_tool(tool_name)
+                    print(f"[forgebot] 💾 Persisted supporting tool: {tool_name}")
+            skill_name = plan.get("skill_name", "")
+            if skill_name and skill_registry.has_skill(skill_name):
+                skill_registry.save_skill(skill_name)
+                print(f"[forgebot] 💾 Persisted skill: {skill_name}")
+
+    def _persist_all_invented(self):
+        """Persist ALL invented tools and skills (called on task completion)."""
+        for tool in registry.get_invented_tools():
+            registry.save_tool(tool.name)
+        for skill in skill_registry.get_all_skills():
+            skill_registry.save_skill(skill.name)
+        count = len(registry.get_invented_tools()) + len(skill_registry.get_all_skills())
+        if count:
+            print(f"[forgebot] 💾 Persisted {count} artifacts to memory/")
 
     # ──────────────────────────────────────────
     # Action handlers
