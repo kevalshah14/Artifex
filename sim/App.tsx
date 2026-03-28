@@ -11,8 +11,11 @@ import * as THREE from 'three';
 import { v4 as uuidv4 } from 'uuid';
 import { MujocoSim } from './MujocoSim';
 import { ChatPanel } from './components/ChatPanel';
+import { Header } from './components/Header';
 import { RobotSelector } from './components/RobotSelector';
+import { SimulationHUD } from './components/SimulationHUD';
 import { Toolbar } from './components/Toolbar';
+import { ToolRegistry } from './components/ToolRegistry';
 import { UnifiedSidebar } from './components/UnifiedSidebar';
 import { DetectedItem, DetectType, LogEntry, MujocoModule } from './types';
 
@@ -111,6 +114,8 @@ export function App() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
 
   const [gizmoStats, setGizmoStats] = useState<{pos: string, rot: string} | null>(null);
+  const [fps, setFps] = useState(0);
+  const [showToolRegistry, setShowToolRegistry] = useState(false);
 
   // Deriving activeLog directly from the latest logs state ensures UI reactivity
   const activeLog = expandedLogId ? logs.find(l => l.id === expandedLogId) : null;
@@ -194,12 +199,21 @@ export function App() {
   useEffect(() => {
       if (isLoading) return;
       let animId: number;
+      let lastTime = performance.now();
+      let frameCount = 0;
       const uiLoop = () => {
+          frameCount++;
+          const now = performance.now();
+          if (now - lastTime >= 1000) {
+              setFps(frameCount);
+              frameCount = 0;
+              lastTime = now;
+          }
           if (simRef.current) {
               const s = simRef.current.getGizmoStats();
-              setGizmoStats(s ? { 
-                  pos: `X: ${s.pos.x.toFixed(2)}, Y: ${s.pos.y.toFixed(2)}, Z: ${s.pos.z.toFixed(2)}`, 
-                  rot: `X: ${s.rot.x.toFixed(2)}, Y: ${s.rot.y.toFixed(2)}, Z: ${s.rot.z.toFixed(2)}` 
+              setGizmoStats(s ? {
+                  pos: `X: ${s.pos.x.toFixed(2)}, Y: ${s.pos.y.toFixed(2)}, Z: ${s.pos.z.toFixed(2)}`,
+                  rot: `X: ${s.rot.x.toFixed(2)}, Y: ${s.rot.y.toFixed(2)}, Z: ${s.rot.z.toFixed(2)}`
               } : null);
           }
           animId = requestAnimationFrame(uiLoop);
@@ -415,13 +429,32 @@ export function App() {
     detectedTargets.current = [];
   };
 
+  // Compute HUD coordinates from gizmoStats
+  const hudCoordinates = gizmoStats ? {
+    x: gizmoStats.pos.split(',')[0]?.replace('X: ', '').trim() ?? '0.00',
+    y: gizmoStats.pos.split(',')[1]?.replace('Y: ', '').trim() ?? '0.00',
+    z: gizmoStats.pos.split(',')[2]?.replace('Z: ', '').trim() ?? '0.00',
+  } : null;
+
   return (
-    <div className={`w-full h-full relative overflow-hidden font-sans transition-colors duration-500 ${isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
-      {/* 3D Container */}
-      <div ref={containerRef} className="w-full h-full absolute inset-0 bg-slate-200" />
-      
-      {/* Robot Info Overlay */}
-      {!loadError && <RobotSelector gizmoStats={gizmoStats} isDarkMode={isDarkMode} />}
+    <div className="w-full h-full flex flex-col overflow-hidden font-sans bg-zinc-950 text-zinc-100">
+      {/* Header */}
+      <Header
+        modelName="gemini-2.5-flash"
+        showToolRegistry={showToolRegistry}
+        onToggleToolRegistry={() => setShowToolRegistry(!showToolRegistry)}
+      />
+
+      {/* Main content area */}
+      <div className="flex-1 relative overflow-hidden">
+        {/* 3D Container */}
+        <div ref={containerRef} className="w-full h-full absolute inset-0 bg-zinc-900" />
+
+        {/* Simulation HUD */}
+        <SimulationHUD fps={fps} coordinates={hudCoordinates} isLoaded={!isLoading && !loadError} />
+
+        {/* Robot Info Overlay */}
+        {!loadError && <RobotSelector gizmoStats={gizmoStats} isDarkMode={isDarkMode} />}
       
       {/* Loading Screen */}
       {isLoading && (
@@ -554,8 +587,16 @@ export function App() {
               </div>
             </div>
           )}
+
+          {/* Tool Registry Panel */}
+          {showToolRegistry && (
+            <div className="absolute top-12 left-3 w-72 max-h-[calc(100%-60px)] bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden shadow-xl z-30">
+              <ToolRegistry />
+            </div>
+          )}
         </>
       )}
+      </div>
     </div>
   );
 }
