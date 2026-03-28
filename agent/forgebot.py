@@ -108,35 +108,33 @@ MANIPULATION STRATEGY
 ════════════════════════════════════════
 STRIKING / HITTING STRATEGY  (hockey, pushing, sweeping)
 ════════════════════════════════════════
-  When you need to HIT or PUSH an object (like a ball) toward a target:
-    1. get_all_objects()  — this returns BOTH:
-         "objects"   = movable bodies (ball, cubes, …)
-         "landmarks" = fixed bodies (goal_post, tray, …)
-       USE BOTH to find the ball position AND the goal/target position.
-    2. Compute approach:
-       • ball_pos = objects entry position
-       • goal_pos = landmarks entry position
-       • direction = normalize(goal_pos - ball_pos)   (XY only)
-       • wind_up  = ball_pos - direction * 0.15  (15 cm behind ball)
-       • follow_through = ball_pos + direction * 0.15
-    3. Lower to ball height:
-       • The stick/tool TIP must be at the BALL'S Z height.
-       • move_to target Z = ball z (≈ 0.03 for a ball on the table).
-         move_to specifies where the TCP (tool tip) goes — NOT the hand.
-    4. Execute the swing:
-       a. move_to(wind_up_x, wind_up_y, ball_z)        — behind ball
-       b. move_to(follow_through_x, follow_through_y, ball_z, duration=400)
-          — fast sweep THROUGH ball toward goal (use duration < 500 for speed)
-    5. VERIFY:  call get_all_objects() again and check if the ball moved
-       toward the goal.  If it didn't move, your Z was wrong or you
-       missed — re-check positions and try again.  NEVER say "done"
-       unless the ball position actually changed toward the goal.
+  USE strike_toward() — it handles all direction math automatically:
 
-  CRITICAL: move_to positions the TCP (tool tip), NOT the hand/flange.
-  The IK system handles the offset. So pass the ball's actual coordinates.
+    strike_toward(object_name="ball", target_name="goal_post")
 
-  The optional `duration` parameter on move_to controls speed in ms
-  (default 1500). For striking, use 300-500 ms for a fast hit.
+  This primitive:
+    1. Reads the ball position and goal position from the sim
+    2. Computes the correct XY direction vector
+    3. Moves to a wind-up position behind the ball (opposite to goal)
+    4. Executes a fast swing through the ball toward the goal
+    5. Returns pre_strike_pos, post_strike_pos, and distance_moved
+
+  WORKFLOW:
+    1. get_all_objects() — find the ball name and the goal landmark name
+    2. strike_toward(object_name="ball", target_name="goal_post")
+    3. CHECK the result: if distance_moved < 0.01, the strike missed.
+       Retry with adjusted strike_z or approach_dist.
+    4. get_all_objects() again to verify the ball is near the goal.
+    5. NEVER say "done" unless the ball actually moved toward the goal.
+
+  Optional params:
+    • approach_dist=0.15  — wind-up distance (increase if missing)
+    • strike_duration=400 — ms for the swing (lower = faster = harder hit)
+    • strike_z=0.03       — override hit height (default = ball's current Z)
+    • target_pos=[x,y,z]  — explicit target instead of target_name
+
+  If you need manual control, move_to() still works — its `duration`
+  parameter controls speed (300-500 ms for fast strikes).
 
 ════════════════════════════════════════
 SCENE MODIFICATION
@@ -298,7 +296,7 @@ WRITING CODE RULES
                    get_all_objects, pick_up, grasp, place_at, step_sim,
                    add_object, add_custom_object, remove_body,
                    clear_objects, set_body_color, move_body, reset_scene,
-                   attach_gripper, detach_gripper
+                   attach_gripper, detach_gripper, strike_toward
       Invented   : all registered tools/skills by name
       Stdlib     : asyncio, json
   • Always return {{"success": bool, ...}}.
@@ -371,6 +369,14 @@ RESPONSE FORMAT  (strict JSON, no markdown)
     "task_description": "What the evolved tool should accomplish"
 }}
 """
+
+
+def build_system_prompt() -> str:
+    """Insert registry text without str.format — avoids KeyError if prompt or descriptions contain `{`."""
+    text = SYSTEM_PROMPT.replace("{tool_descriptions}", registry.get_tool_descriptions()).replace(
+        "{skill_descriptions}", skill_registry.get_skill_descriptions()
+    )
+    return text.replace("{{", "{").replace("}}", "}")
 
 
 # ──────────────────────────────────────────
@@ -449,10 +455,7 @@ class ForgeBotAgent:
         retries_this_step = 0
 
         for step in range(1, self.MAX_STEPS + 1):
-            system = SYSTEM_PROMPT.format(
-                tool_descriptions=registry.get_tool_descriptions(),
-                skill_descriptions=skill_registry.get_skill_descriptions(),
-            )
+            system = build_system_prompt()
 
             # Capture current scene image
             await self._emit("thinking", {"message": "Capturing scene image..."})
@@ -897,6 +900,7 @@ class ForgeBotAgent:
             "reset_scene": primitives.reset_scene,
             "attach_gripper": primitives.attach_gripper,
             "detach_gripper": primitives.detach_gripper,
+            "strike_toward": primitives.strike_toward,
         }
         for tool in registry.get_invented_tools():
             if tool.fn and tool.name != exclude_name:

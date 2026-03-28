@@ -45,6 +45,7 @@ export class SimBridge {
             clear_objects: (cmd) => this.handleClearObjects(cmd),
             attach_gripper: (cmd) => this.handleAttachGripper(cmd),
             detach_gripper: () => this.handleDetachGripper(),
+            strike_toward: (cmd) => this.handleStrikeToward(cmd),
         };
     }
 
@@ -256,6 +257,88 @@ export class SimBridge {
             : target as [number, number, number];
 
         return { success: true, requested: target, actual_tcp: actual };
+    }
+
+    private async handleStrikeToward(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel || !sim.mjData) return { success: false, error: 'Sim not ready' };
+
+        const objectName = cmd.object_name as string;
+        const targetPos = cmd.target_pos as number[] | undefined;
+        const targetName = cmd.target_name as string | undefined;
+        const approachDist = (cmd.approach_dist as number) ?? 0.15;
+        const strikeDuration = (cmd.strike_duration as number) ?? 400;
+        const strikeZ = cmd.strike_z as number | undefined;
+
+        const objectId = this.findBodyId(objectName);
+        if (objectId === null) return { success: false, error: `Object '${objectName}' not found` };
+        const objPos = this.getBodyPosition(objectId);
+
+        let goalPos: [number, number, number];
+        if (targetPos) {
+            goalPos = targetPos as [number, number, number];
+        } else if (targetName) {
+            const goalId = this.findBodyId(targetName);
+            if (goalId === null) return { success: false, error: `Target '${targetName}' not found` };
+            goalPos = this.getBodyPosition(goalId);
+        } else {
+            return { success: false, error: 'Provide target_pos [x,y,z] or target_name' };
+        }
+
+        // Direction from object toward goal (XY plane only)
+        const dx = goalPos[0] - objPos[0];
+        const dy = goalPos[1] - objPos[1];
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 0.001) return { success: false, error: 'Object and target overlap' };
+        const dirX = dx / dist;
+        const dirY = dy / dist;
+
+        const hitZ = strikeZ ?? objPos[2];
+
+        // Phase 1: move to wind-up position (behind object, opposite to goal direction)
+        const windUp = new THREE.Vector3(
+            objPos[0] - dirX * approachDist,
+            objPos[1] - dirY * approachDist,
+            hitZ
+        );
+        sim.moveIkTargetTo(windUp, 1200);
+        sim.setIkEnabled(true);
+        await this.waitFrames(100);
+
+        // Read object position right before strike (it may have shifted)
+        const preStrikePos = this.getBodyPosition(objectId);
+
+        // Phase 2: fast strike through the object toward the goal
+        const followThrough = new THREE.Vector3(
+            objPos[0] + dirX * approachDist,
+            objPos[1] + dirY * approachDist,
+            hitZ
+        );
+        sim.moveIkTargetTo(followThrough, strikeDuration);
+        const strikeFrames = Math.max(20, Math.round((strikeDuration / 1000) * 60) + 20);
+        await this.waitFrames(strikeFrames);
+
+        // Let physics settle a bit
+        await this.waitFrames(60);
+
+        // Read post-strike object position
+        const postStrikePos = this.getBodyPosition(objectId);
+        const moved = Math.sqrt(
+            (postStrikePos[0] - preStrikePos[0]) ** 2 +
+            (postStrikePos[1] - preStrikePos[1]) ** 2 +
+            (postStrikePos[2] - preStrikePos[2]) ** 2
+        );
+
+        return {
+            success: true,
+            object_name: objectName,
+            pre_strike_pos: preStrikePos,
+            post_strike_pos: postStrikePos,
+            distance_moved: Math.round(moved * 1000) / 1000,
+            goal_direction: [Math.round(dirX * 100) / 100, Math.round(dirY * 100) / 100],
+            wind_up: [windUp.x, windUp.y, windUp.z],
+            follow_through: [followThrough.x, followThrough.y, followThrough.z],
+        };
     }
 
     private async handleSetGripper(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {

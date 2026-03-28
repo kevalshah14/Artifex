@@ -383,6 +383,43 @@ async def attach_gripper(gripper_xml: str, tcp_offset: str = "0 0 0.1") -> dict:
     })
 
 
+async def strike_toward(object_name: str, target_name: str = "", target_pos: list = None,
+                        approach_dist: float = 0.15, strike_duration: int = 400,
+                        strike_z: float = None) -> dict:
+    """Hit/push an object toward a target using the current gripper/tool.
+
+    The backend computes the correct direction vector, wind-up position,
+    and follow-through automatically.  Returns pre/post positions so you
+    can verify the ball actually moved.
+
+    Args:
+        object_name: Name of the object to hit (e.g. 'ball').
+        target_name: Name of the target body to hit toward (e.g. 'goal_post').
+        target_pos:  Alternative: explicit [x,y,z] to aim at.  Use target_name OR target_pos.
+        approach_dist: How far behind the object to wind up (meters, default 0.15).
+        strike_duration: Speed of the strike in ms (default 400 = fast).
+        strike_z: Override Z height for the strike. Default = object's current Z.
+
+    Returns:
+        dict with pre_strike_pos, post_strike_pos, distance_moved, goal_direction.
+    """
+    cmd = {
+        "action": "strike_toward",
+        "object_name": object_name,
+        "approach_dist": approach_dist,
+        "strike_duration": strike_duration,
+    }
+    if target_pos:
+        cmd["target_pos"] = target_pos
+    elif target_name:
+        cmd["target_name"] = target_name
+    else:
+        return {"success": False, "error": "Provide target_name or target_pos"}
+    if strike_z is not None:
+        cmd["strike_z"] = strike_z
+    return await send_command(cmd)
+
+
 async def detach_gripper() -> dict:
     """Remove any previously attached custom gripper from the robot.
 
@@ -483,5 +520,10 @@ PRIMITIVES = {
         "fn": detach_gripper,
         "signature": "detach_gripper() -> dict",
         "description": "Remove any previously attached custom gripper from the robot."
+    },
+    "strike_toward": {
+        "fn": strike_toward,
+        "signature": "strike_toward(object_name: str, target_name: str = '', target_pos: list = None, approach_dist: float = 0.15, strike_duration: int = 400, strike_z: float = None) -> dict",
+        "description": "Hit/push an object toward a target. Computes correct direction, wind-up, and follow-through automatically. Returns pre/post positions and distance_moved. Use for hockey/pushing tasks."
     },
 }

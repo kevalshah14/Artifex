@@ -1,0 +1,13 @@
+{
+  "name": "gripper_assisted_drop_v5",
+  "description": "Manual-manipulation approach: grasp the new ball from a spawn point and lower it gently.",
+  "signature": "gripper_assisted_drop_v5() -> dict",
+  "source_code": "async def gripper_assisted_drop_v5():\n    await set_gripper(True)\n    await move_to('spawn_point', 0, 0, 0.5)\n    await set_gripper(False)\n    await place_at(0.2, 0.2, 0.1)\n    return {'success': True}",
+  "composed_from": [
+    "set_gripper",
+    "move_to",
+    "place_at"
+  ],
+  "created_at": 1774738925.732558,
+  "invocation_count": 0
+}
