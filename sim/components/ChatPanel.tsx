@@ -30,6 +30,7 @@ function formatEvent(data: Record<string, unknown>): string | null {
       const name = data.tool_name ?? data.skill_name ?? "?";
       const preview = r ? JSON.stringify(r).slice(0, 200) : "";
       return `**Result** \`${name}\` — \`${preview}\``;
+
     }
     case "retry":
       return `**Retry** ${data.attempt}/${data.max_retries} — ${(data.error as string ?? "").slice(0, 150)}`;

@@ -144,12 +144,15 @@ async def chat_ws(ws: WebSocket):
 
             if data.get("type") == "task":
                 user_message = data.get("message", "")
+                print(f"[server] Received task from chat: '{user_message}'")
                 # Broadcast that we received the task
                 await manager.broadcast_to_chat("task_received", {
                     "message": user_message
                 })
                 # Run the agent
+                print(f"[server] Invoking agent.handle_task...")
                 result = await agent.handle_task(user_message)
+                print(f"[server] Agent completed task. Result: {json.dumps(result, default=str)[:300]}")
                 # Send final result
                 await manager.broadcast_to_chat("task_complete", {
                     "result": result
@@ -183,10 +186,17 @@ async def sim_ws(ws: WebSocket):
 
             if data.get("type") == "state_update":
                 # Frontend sends periodic sim state updates
-                update_sim_state(data.get("state", {}))
+                state = data.get("state", {})
+                update_sim_state(state)
+                print(f"[server] sim state_update: {json.dumps(state, default=str)[:200]}")
 
             elif data.get("type") == "command_result":
-                resolve_command_result(data.get("result", {}))
+                result = data.get("result", {})
+                action = result.get("action", "unknown") if isinstance(result, dict) else "unknown"
+                success = result.get("success", "N/A") if isinstance(result, dict) else "N/A"
+                print(f"[server] sim command_result: action_hint={action}, success={success}")
+                print(f"[server]   result: {json.dumps(result, default=str)[:500]}")
+                resolve_command_result(result)
 
     except WebSocketDisconnect:
         manager.disconnect_sim()
@@ -248,4 +258,5 @@ async def get_skill(skill_name: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=True)

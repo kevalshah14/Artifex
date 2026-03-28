@@ -50,11 +50,25 @@ async def send_command(cmd: dict, timeout: float = 30.0) -> dict:
     try:
         loop = asyncio.get_running_loop()
         _pending_command = loop.create_future()
-        print(f"[primitives] Sending command: {cmd.get('action', 'unknown')}")
+        action = cmd.get('action', 'unknown')
+        print(f"[primitives] Sending command: {action}")
+        print(f"[primitives]   full cmd: {json.dumps(cmd, default=str)[:500]}")
         await _sim_ws.send_text(json.dumps(cmd))
-        print(f"[primitives] Awaiting response for: {cmd.get('action', 'unknown')}")
+        print(f"[primitives] Awaiting response for: {action}")
         result = await asyncio.wait_for(_pending_command, timeout=timeout)
-        print(f"[primitives] Got response for: {cmd.get('action', 'unknown')}")
+        print(f"[primitives] Got response for: {action}")
+        print(f"[primitives]   result keys: {list(result.keys()) if result else 'None'}")
+        # Log key values for grasp/place_at
+        if action == 'grasp':
+            print(f"[primitives]   grasp result: success={result.get('success')}, original_z={result.get('original_z')}, new_z={result.get('new_z')}, holding={result.get('holding')}")
+        elif action == 'place_at':
+            print(f"[primitives]   place_at result: success={result.get('success')}, placed_at={result.get('placed_at')}")
+        elif action == 'get_all_objects':
+            objects = result.get('objects', [])
+            print(f"[primitives]   objects count: {len(objects)}")
+            for obj in objects:
+                pos = obj.get('position', [])
+                print(f"[primitives]     {obj.get('name')}: pos=({pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f}), color={obj.get('color')}")
         return result
     except asyncio.TimeoutError:
         print(f"[primitives] TIMEOUT for: {cmd.get('action', 'unknown')}")

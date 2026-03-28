@@ -198,13 +198,16 @@ export class SequenceAnimator {
              // Default mode: Look up physics body position
              const cId = this.cubeIds[this.curCubeIdx];
              cPos.set(mjData.xpos[cId*3], mjData.xpos[cId*3+1], mjData.xpos[cId*3+2]);
+             console.log(`[SeqAnim] prepareStep ${this.step}: livePosition mode, cubeId=${cId}, bodyPos=(${cPos.x.toFixed(4)}, ${cPos.y.toFixed(4)}, ${cPos.z.toFixed(4)})`);
          } else if (!this.useLivePosition && this.curCubeIdx < this.targetPositions.length) {
              // Blind mode: Use provided coordinate
              cPos.copy(this.targetPositions[this.curCubeIdx]);
+             console.log(`[SeqAnim] prepareStep ${this.step}: staticPos mode, rawTarget=(${cPos.x.toFixed(4)}, ${cPos.y.toFixed(4)}, ${cPos.z.toFixed(4)})`);
              // Adjust Z: The provided position is likely the surface hit (e.g. top of cube, Z=0.04).
              // The robot TCP (Tool Center Point) needs to be slightly lower to grasp the object securely.
              // We lower it by 2cm.
              cPos.z -= 0.02;
+             console.log(`[SeqAnim] prepareStep ${this.step}: after z-offset (-0.02), cPos=(${cPos.x.toFixed(4)}, ${cPos.y.toFixed(4)}, ${cPos.z.toFixed(4)})`);
          }
 
          // Get tray position
@@ -253,24 +256,41 @@ export class SequenceAnimator {
          const mul = this.isStacking ? 0.8 : 2.0;
          let useExplicitJoints = false;
 
-         // THE SEQUENCE STATE MACHINE (Defines Cartesian Target)
-         switch(this.step) {
-            case 0: // Move above cube
-                this.duration=2*mul; this.targetPos.set(cPos.x, cPos.y, this.startPos.z); this.targetQuat.copy(downQuat); this.gripperVal=0; break;
-            case 1: // Lower to hover just above cube
-                this.duration=2*mul; this.targetPos.set(cPos.x, cPos.y, cPos.z+0.2); this.targetQuat.copy(downQuat); this.gripperVal=0; break;
-            case 2: // Open gripper fully
-                this.duration=0.5*mul; this.targetPos.copy(ikTarget.position); this.targetQuat.copy(downQuat); this.gripperVal=255; break;
-            case 3: // Lower onto cube
-                this.duration=4*mul; this.targetPos.set(cPos.x, cPos.y, cPos.z); this.targetQuat.copy(downQuat); this.gripperVal=255; break;
-            case 4: // Wait for physics to settle
-                this.duration=2*mul; this.targetPos.copy(ikTarget.position); this.targetQuat.copy(downQuat); this.gripperVal=255; break;
-            case 5: // Grasp (close)
-                this.duration=0.5*mul; this.targetPos.copy(ikTarget.position); this.targetQuat.copy(downQuat); this.gripperVal=0; break;
-            case 6: // Wait for grasp
-                this.duration=1.0*mul; this.targetPos.copy(ikTarget.position); this.targetQuat.copy(downQuat); this.gripperVal=0; break;
-            case 7: // Lift
-                this.duration=2*mul; this.targetPos.set(cPos.x, cPos.y, cPos.z+0.2); this.targetQuat.copy(downQuat); this.gripperVal=0; break;
+        // THE SEQUENCE STATE MACHINE (Defines Cartesian Target)
+        switch(this.step) {
+           case 0: // Move above cube
+               this.duration=2*mul; this.targetPos.set(cPos.x, cPos.y, this.startPos.z); this.targetQuat.copy(downQuat); this.gripperVal=0; 
+               console.log(`[SeqAnim] step 0 (Move over): target=(${cPos.x.toFixed(4)}, ${cPos.y.toFixed(4)}, ${this.startPos.z.toFixed(4)}), gripper=0 (closed)`);
+               break;
+           case 1: // Lower to hover just above cube
+               this.duration=2*mul; this.targetPos.set(cPos.x, cPos.y, cPos.z+0.2); this.targetQuat.copy(downQuat); this.gripperVal=0;
+               console.log(`[SeqAnim] step 1 (Hover): target z=${(cPos.z+0.2).toFixed(4)} = cubeZ(${cPos.z.toFixed(4)}) + 0.2, gripper=0 (closed)`);
+               break;
+           case 2: // Open gripper fully
+               this.duration=0.5*mul; this.targetPos.copy(ikTarget.position); this.targetQuat.copy(downQuat); this.gripperVal=255;
+               console.log(`[SeqAnim] step 2 (Open): gripper=255 (OPEN), staying at current pos`);
+               break;
+           case 3: // Lower onto cube
+               this.duration=4*mul; this.targetPos.set(cPos.x, cPos.y, cPos.z); this.targetQuat.copy(downQuat); this.gripperVal=255;
+               console.log(`[SeqAnim] step 3 (Lower): target z=${cPos.z.toFixed(4)} = cubeZ directly, gripper=255 (OPEN)`);
+               console.log(`[SeqAnim] step 3 (Lower): *** This is the critical depth step — gripper should descend to z=${cPos.z.toFixed(4)} ***`);
+               break;
+           case 4: // Wait for physics to settle
+               this.duration=2*mul; this.targetPos.copy(ikTarget.position); this.targetQuat.copy(downQuat); this.gripperVal=255;
+               console.log(`[SeqAnim] step 4 (Wait): gripper=255 (still OPEN), settling`);
+               break;
+           case 5: // Grasp (close)
+               this.duration=0.5*mul; this.targetPos.copy(ikTarget.position); this.targetQuat.copy(downQuat); this.gripperVal=0;
+               console.log(`[SeqAnim] step 5 (GRASP): gripper=0 (CLOSED) — should be gripping cube`);
+               break;
+           case 6: // Wait for grasp
+               this.duration=1.0*mul; this.targetPos.copy(ikTarget.position); this.targetQuat.copy(downQuat); this.gripperVal=0;
+               console.log(`[SeqAnim] step 6 (Wait): gripper=0 (closed), holding`);
+               break;
+           case 7: // Lift
+               this.duration=2*mul; this.targetPos.set(cPos.x, cPos.y, cPos.z+0.2); this.targetQuat.copy(downQuat); this.gripperVal=0;
+               console.log(`[SeqAnim] step 7 (Lift): target z=${(cPos.z+0.2).toFixed(4)}, gripper=0 (closed)`);
+               break;
             case 8: // Move to Tray
                 // If graspOnly mode, skip the tray placement and finish here
                 if (this.graspOnly) {
