@@ -169,10 +169,11 @@ SCENE MODIFICATION
         - Test z so the object sits correctly on the table surface.
 
   Other scene commands:
-    • remove_body(body_name)       — remove any body
+    • remove_body(body_name)       — remove a single body
+    • clear_objects(name_prefix)   — bulk remove: '' = all objects, 'cube' = only cubes
     • set_body_color(name, color)  — change color instantly
     • move_body(name, x, y, z)     — teleport a body
-    • reset_scene()                — reset to initial state
+    • reset_scene()                — reset to initial state (brings cubes back)
 
 ════════════════════════════════════════
 CAPABILITY HIERARCHY
@@ -212,7 +213,7 @@ WRITING CODE RULES
       Primitives : move_to, set_gripper, get_body_position, get_body_color,
                    get_all_objects, pick_up, grasp, place_at, step_sim,
                    add_object, add_custom_object, remove_body,
-                   set_body_color, move_body, reset_scene
+                   clear_objects, set_body_color, move_body, reset_scene
       Invented   : all registered tools/skills by name
       Stdlib     : asyncio, json
   • Always return {{"success": bool, ...}}.
@@ -807,6 +808,7 @@ class ForgeBotAgent:
             "remove_body": primitives.remove_body,
             "set_body_color": primitives.set_body_color,
             "move_body": primitives.move_body,
+            "clear_objects": primitives.clear_objects,
             "reset_scene": primitives.reset_scene,
         }
         for tool in registry.get_invented_tools():

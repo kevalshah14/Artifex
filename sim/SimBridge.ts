@@ -42,6 +42,7 @@ export class SimBridge {
             set_body_color: (cmd) => this.handleSetBodyColor(cmd),
             move_body: (cmd) => this.handleMoveBody(cmd),
             reset_scene: () => this.handleResetScene(),
+            clear_objects: (cmd) => this.handleClearObjects(cmd),
         };
     }
 
@@ -581,6 +582,46 @@ export class SimBridge {
         }
 
         return { success: false, error: `Body '${name}' has no free joint — cannot teleport` };
+    }
+
+    private async handleClearObjects(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel) return { success: false, error: 'Sim not ready' };
+
+        const nameFilter = cmd.name_prefix as string | undefined;
+
+        try {
+            // Collect names of all free-joint bodies (= manipulable objects)
+            const toRemove: string[] = [];
+            for (let j = 0; j < sim.mjModel.njnt; j++) {
+                if (sim.mjModel.jnt_type[j] !== 0) continue; // only FREE joints
+                const bodyId = sim.mjModel.jnt_bodyid[j];
+                const name = getName(sim.mjModel, sim.mjModel.name_bodyadr[bodyId]);
+                if (!name || name === 'world') continue;
+                if (nameFilter && !name.startsWith(nameFilter)) continue;
+                toRemove.push(name);
+            }
+
+            if (toRemove.length === 0) {
+                return { success: true, removed: [], message: 'No matching objects to remove' };
+            }
+
+            let sceneXml = this.readWorkingText('/working/scene.xml');
+            for (const name of toRemove) {
+                const pattern = new RegExp(
+                    `\\s*<body\\s+name="${name}"[^>]*>[\\s\\S]*?</body>`, 'm'
+                );
+                sceneXml = sceneXml.replace(pattern, '');
+            }
+
+            this.writeWorkingText('/working/scene.xml', sceneXml);
+            sim.reloadFromWorkingScene();
+            await this.waitFrames(20);
+
+            return { success: true, removed: toRemove, count: toRemove.length };
+        } catch (e) {
+            return { success: false, error: `Failed to clear objects: ${e}` };
+        }
     }
 
     private async handleResetScene(): Promise<Record<string, unknown>> {

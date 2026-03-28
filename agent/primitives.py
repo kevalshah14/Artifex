@@ -328,6 +328,23 @@ async def move_body(body_name: str, x: float, y: float, z: float) -> dict:
     })
 
 
+async def clear_objects(name_prefix: str = "") -> dict:
+    """Remove all manipulable objects from the scene in one reload.
+
+    Args:
+        name_prefix: If provided, only remove objects whose name starts with
+                     this prefix (e.g. 'cube' removes cube0-cubeN). If empty,
+                     removes ALL free-joint objects.
+
+    Returns:
+        dict with 'success', 'removed' list, and 'count'.
+    """
+    cmd: dict = {"action": "clear_objects"}
+    if name_prefix:
+        cmd["name_prefix"] = name_prefix
+    return await send_command(cmd)
+
+
 async def reset_scene() -> dict:
     """Reset the simulation to its initial state (re-randomizes cubes).
 
@@ -408,6 +425,11 @@ PRIMITIVES = {
         "fn": move_body,
         "signature": "move_body(body_name: str, x: float, y: float, z: float) -> dict",
         "description": "Teleport a body instantly to a new position (no physics, just sets qpos)."
+    },
+    "clear_objects": {
+        "fn": clear_objects,
+        "signature": "clear_objects(name_prefix: str = '') -> dict",
+        "description": "Remove all manipulable objects in one reload. Pass name_prefix (e.g. 'cube') to only remove matching objects, or empty string for all."
     },
     "reset_scene": {
         "fn": reset_scene,
