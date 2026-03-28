@@ -68,6 +68,8 @@ export class SimBridge {
             const action = cmd.action as string | undefined;
             if (!action) return;
 
+            console.log(`[SimBridge] >>> Received command: ${action}`, JSON.stringify(cmd).slice(0, 300));
+
             const handler = this.handlers[action];
             let result: Record<string, unknown>;
             if (handler) {
@@ -215,7 +217,9 @@ export class SimBridge {
         if (!sim?.mjData || sim.gripperActuatorId < 0) return { success: false, error: 'Gripper not available' };
 
         const open = cmd.open as boolean;
+        console.log(`[SimBridge] handleSetGripper: open=${open}, gripperActuatorId=${sim.gripperActuatorId}`);
         sim.mjData.ctrl[sim.gripperActuatorId] = open ? 0.08 : 0.0;
+        console.log(`[SimBridge] handleSetGripper: ctrl[${sim.gripperActuatorId}] = ${open ? 0.08 : 0.0}`);
         await this.waitFrames(60); // ~1 second to settle
         return { success: true, gripper_state: open ? 'open' : 'closed' };
     }
@@ -256,18 +260,24 @@ export class SimBridge {
             sim.mjData.xpos[bodyId * 3 + 2]
         );
 
-        // Grasp and hold (no tray placement)
+        console.log(`[SimBridge] handleGrasp: bodyName=${bodyName}, bodyId=${bodyId}`);
+        console.log(`[SimBridge] handleGrasp: body position from xpos = (${pos.x.toFixed(4)}, ${pos.y.toFixed(4)}, ${pos.z.toFixed(4)})`);
+        console.log(`[SimBridge] handleGrasp: using graspObjectById (livePosition mode) for accurate depth tracking`);
+
+        // Grasp and hold (no tray placement) — use body ID for live position tracking
         return new Promise((resolve) => {
-            sim.graspObject(pos, () => {
+            sim.graspObjectById(bodyId, () => {
                 // Verify grasp by checking if object lifted
                 const newZ = sim.mjData!.xpos[bodyId * 3 + 2];
                 const lifted = newZ > pos.z + 0.05;
+                console.log(`[SimBridge] handleGrasp COMPLETE: bodyName=${bodyName}, original_z=${pos.z.toFixed(4)}, new_z=${newZ.toFixed(4)}, lifted=${lifted}`);
+                console.log(`[SimBridge] handleGrasp: z_delta=${(newZ - pos.z).toFixed(4)}, threshold=0.05`);
                 resolve({
                     success: lifted,
                     holding: lifted ? bodyName : null,
                     original_z: pos.z,
                     new_z: newZ,
-                    message: lifted ? `Successfully grasped ${bodyName}` : `Grasp failed — ${bodyName} did not lift`
+                    message: lifted ? `Successfully grasped ${bodyName}` : `Grasp failed — ${bodyName} did not lift (z_delta=${(newZ - pos.z).toFixed(4)})`
                 });
             });
         });
@@ -279,16 +289,24 @@ export class SimBridge {
 
         const target = cmd.target as number[];
         const pos = new THREE.Vector3(target[0], target[1], target[2]);
+
+        console.log(`[SimBridge] handlePlaceAt: target=(${target[0].toFixed(4)}, ${target[1].toFixed(4)}, ${target[2].toFixed(4)})`);
+        console.log(`[SimBridge] handlePlaceAt: NOTE — moveIkTargetTo adds +0.05 to z internally, so effector goes to z=${(target[2] + 0.05).toFixed(4)}`);
+
         sim.moveIkTargetTo(pos, 1500);
         sim.setIkEnabled(true);
         await this.waitFrames(120);
 
+        console.log(`[SimBridge] handlePlaceAt: IK move complete, opening gripper`);
+
         // Open gripper to release
         if (sim.gripperActuatorId >= 0) {
             sim.mjData.ctrl[sim.gripperActuatorId] = 0.08;
+            console.log(`[SimBridge] handlePlaceAt: gripper opened (ctrl[${sim.gripperActuatorId}] = 0.08)`);
         }
         await this.waitFrames(60);
 
+        console.log(`[SimBridge] handlePlaceAt: COMPLETE at (${target[0].toFixed(4)}, ${target[1].toFixed(4)}, ${target[2].toFixed(4)})`);
         return { success: true, placed_at: target };
     }
 
