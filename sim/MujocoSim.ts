@@ -120,6 +120,22 @@ export class MujocoSim {
             }
         }
 
+        // Update IK flange->tcp distance from the currently loaded model.
+        // This makes analytical IK aware of custom grippers that move the tcp site.
+        if (this.ikSys.gripperSiteId >= 0) {
+            // site_pos is local to the parent body in MuJoCo (hand frame here).
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sitePos = (this.mjModel as any).site_pos as ArrayLike<number> | undefined;
+            if (sitePos) {
+                const s = this.ikSys.gripperSiteId * 3;
+                const x = Number(sitePos[s] ?? 0);
+                const y = Number(sitePos[s + 1] ?? 0);
+                const z = Number(sitePos[s + 2] ?? 0);
+                const d = Math.sqrt(x * x + y * y + z * z);
+                this.ikSys.setEeOffsetMeters(d);
+            }
+        }
+
         this.setInitialPose();
         this.mujoco.mj_forward(this.mjModel, this.mjData);
         this.renderSys.initScene(this.mjModel);
@@ -285,7 +301,7 @@ export class MujocoSim {
             this.setIkEnabled(true);
         }
         
-        const targetPos = new THREE.Vector3(pos.x, pos.y, pos.z + 0.05);
+        const targetPos = new THREE.Vector3(pos.x, pos.y, pos.z);
         const targetRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0));
 
         if (duration > 0) {

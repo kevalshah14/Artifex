@@ -1,0 +1,11 @@
+{
+  "name": "add_goal_post",
+  "description": "Adds a goal post structure to the scene at the specified location.",
+  "signature": "add_goal_post(x: float, y: float, z: float) -> dict",
+  "source_code": "async def add_goal_post(x, y, z):\n    xml = '<geom type=\"cylinder\" size=\"0.01 0.1\" pos=\"0 0 0.1\" rgba=\"1 1 1 1\"/><geom type=\"cylinder\" size=\"0.01 0.1\" pos=\"0.2 0 0.1\" rgba=\"1 1 1 1\"/><geom type=\"cylinder\" size=\"0.01 0.1\" pos=\"0.1 0 0.2\" euler=\"0 90 0\" rgba=\"1 1 1 1\"/>'\n    return await add_custom_object('goal_post', x, y, z, xml)",
+  "composed_from": [
+    "add_custom_object"
+  ],
+  "created_at": 1774737242.157654,
+  "invocation_count": 1
+}

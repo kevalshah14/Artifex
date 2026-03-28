@@ -106,6 +106,39 @@ MANIPULATION STRATEGY
     • If grasp fails, try again — the object may have shifted.
 
 ════════════════════════════════════════
+STRIKING / HITTING STRATEGY  (hockey, pushing, sweeping)
+════════════════════════════════════════
+  When you need to HIT or PUSH an object (like a ball) toward a target:
+    1. get_all_objects()  — this returns BOTH:
+         "objects"   = movable bodies (ball, cubes, …)
+         "landmarks" = fixed bodies (goal_post, tray, …)
+       USE BOTH to find the ball position AND the goal/target position.
+    2. Compute approach:
+       • ball_pos = objects entry position
+       • goal_pos = landmarks entry position
+       • direction = normalize(goal_pos - ball_pos)   (XY only)
+       • wind_up  = ball_pos - direction * 0.15  (15 cm behind ball)
+       • follow_through = ball_pos + direction * 0.15
+    3. Lower to ball height:
+       • The stick/tool TIP must be at the BALL'S Z height.
+       • move_to target Z = ball z (≈ 0.03 for a ball on the table).
+         move_to specifies where the TCP (tool tip) goes — NOT the hand.
+    4. Execute the swing:
+       a. move_to(wind_up_x, wind_up_y, ball_z)        — behind ball
+       b. move_to(follow_through_x, follow_through_y, ball_z, duration=400)
+          — fast sweep THROUGH ball toward goal (use duration < 500 for speed)
+    5. VERIFY:  call get_all_objects() again and check if the ball moved
+       toward the goal.  If it didn't move, your Z was wrong or you
+       missed — re-check positions and try again.  NEVER say "done"
+       unless the ball position actually changed toward the goal.
+
+  CRITICAL: move_to positions the TCP (tool tip), NOT the hand/flange.
+  The IK system handles the offset. So pass the ball's actual coordinates.
+
+  The optional `duration` parameter on move_to controls speed in ms
+  (default 1500). For striking, use 300-500 ms for a fast hit.
+
+════════════════════════════════════════
 SCENE MODIFICATION
 ════════════════════════════════════════
   Simple shapes (one call):
@@ -176,6 +209,52 @@ SCENE MODIFICATION
     • reset_scene()                — reset to initial state (brings cubes back)
 
 ════════════════════════════════════════
+CUSTOM GRIPPER ATTACHMENT
+════════════════════════════════════════
+  You can attach custom tools/grippers to the robot's hand alongside the
+  existing Panda fingers.  The geometry is injected as a rigid child of
+  the 'hand' body in the MJCF model.
+
+    • attach_gripper(gripper_xml, tcp_offset="0 0 0.1")
+      gripper_xml : MJCF body/geom elements (rigidly attached to hand)
+      tcp_offset  : IK target point relative to hand origin ("x y z").
+                    Default "0 0 0.1" (10 cm below flange = fingertips).
+                    If your tool extends further, increase z (e.g. "0 0 0.18").
+
+    • detach_gripper()  — remove any custom gripper, restore default
+
+  The hand frame: Z points downward (toward the table when arm is upright).
+  So pos="0 0 0.12" means 12 cm below the flange = past the fingertips.
+
+  ── Example: spatula ──
+    attach_gripper(
+      gripper_xml='<body name="spatula" pos="0 0 0.11">'
+        '<geom type="box" size="0.04 0.002 0.06" rgba="0.7 0.7 0.7 1" mass="0.05"/>'
+        '</body>',
+      tcp_offset="0 0 0.17")
+
+  ── Example: suction cup ──
+    attach_gripper(
+      gripper_xml='<body name="suction" pos="0 0 0.11">'
+        '<geom type="cylinder" size="0.008 0.03" rgba="0.2 0.2 0.2 1" mass="0.02"/>'
+        '<geom type="sphere" size="0.015" pos="0 0 0.03" rgba="0.8 0.2 0.2 1" mass="0.01"/>'
+        '</body>',
+      tcp_offset="0 0 0.15")
+
+  ── Example: wide paddle ──
+    attach_gripper(
+      gripper_xml='<body name="paddle" pos="0 0 0.105">'
+        '<geom type="box" size="0.06 0.06 0.003" rgba="0.9 0.8 0.3 1" mass="0.08"/>'
+        '</body>',
+      tcp_offset="0 0 0.11")
+
+  TIPS:
+    - pos="0 0 0.1" on a child body starts at the fingertip level.
+    - Keep tools lightweight (mass 0.01–0.1 kg) to avoid IK instability.
+    - Update tcp_offset so the IK target lands at the tool's working tip.
+    - The default fingers remain — this is an ADD-ON, not a replacement.
+
+════════════════════════════════════════
 CAPABILITY HIERARCHY
 ════════════════════════════════════════
   Primitives  →  Tools  →  Skills
@@ -198,8 +277,13 @@ YOUR DECISION PROCESS (use the image!)
 ════════════════════════════════════════
 DATA FORMAT NOTES
 ════════════════════════════════════════
-  • get_all_objects() → {{"success": bool, "objects": [list]}}
-    Each: {{"name": str, "position": [x,y,z], "color": str, "size": [x,y,z]}}
+  • get_all_objects() → {{"success": bool, "objects": [list], "landmarks": [list]}}
+    objects:   movable bodies {{"name", "shape", "position": [x,y,z], "color", "movable": true}}
+    landmarks: fixed bodies   {{"name", "shape", "position": [x,y,z], "movable": false}}
+    ALWAYS check landmarks for targets like "goal_post".
+  • move_to(x, y, z) → {{"success": bool, "requested": [x,y,z], "actual_tcp": [x,y,z]}}
+    Compare requested vs actual_tcp — if they differ significantly,
+    the target was unreachable (out of workspace or collision).
   • grasp(body_name) → {{"success": bool, "holding": str|null}}
     Pass the object NAME (e.g. "cube0"), NOT a description.
   • place_at(x, y, z) → {{"success": bool, "placed_at": [x,y,z]}}
@@ -213,7 +297,8 @@ WRITING CODE RULES
       Primitives : move_to, set_gripper, get_body_position, get_body_color,
                    get_all_objects, pick_up, grasp, place_at, step_sim,
                    add_object, add_custom_object, remove_body,
-                   clear_objects, set_body_color, move_body, reset_scene
+                   clear_objects, set_body_color, move_body, reset_scene,
+                   attach_gripper, detach_gripper
       Invented   : all registered tools/skills by name
       Stdlib     : asyncio, json
   • Always return {{"success": bool, ...}}.
@@ -295,7 +380,7 @@ RESPONSE FORMAT  (strict JSON, no markdown)
 class ForgeBotAgent:
     """The main agent that plans, invents, and executes — with vision."""
 
-    def __init__(self, model: str = "gemini-robotics-er-1.5-preview"):
+    def __init__(self, model: str = "gemini-3.1-flash-lite-preview"):
         self.model = model
         self._event_callback = None
         init_primitives()
@@ -810,6 +895,8 @@ class ForgeBotAgent:
             "move_body": primitives.move_body,
             "clear_objects": primitives.clear_objects,
             "reset_scene": primitives.reset_scene,
+            "attach_gripper": primitives.attach_gripper,
+            "detach_gripper": primitives.detach_gripper,
         }
         for tool in registry.get_invented_tools():
             if tool.fn and tool.name != exclude_name:

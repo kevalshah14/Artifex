@@ -1,0 +1,11 @@
+{
+  "name": "add_hockey_puck",
+  "description": "Adds a hockey puck (black cylinder) to the scene at the specified location.",
+  "signature": "add_hockey_puck(x: float, y: float, z: float) -> dict",
+  "source_code": "async def add_hockey_puck(x, y, z):\n    return await add_custom_object('hockey_puck', x, y, z, body_xml='<geom type=\"cylinder\" size=\"0.03 0.01\" rgba=\"0.1 0.1 0.1 1\" mass=\"0.15\" condim=\"4\" friction=\"0.5 0.05 0.01\"/>')",
+  "composed_from": [
+    "add_custom_object"
+  ],
+  "created_at": 1774738206.795756,
+  "invocation_count": 1
+}

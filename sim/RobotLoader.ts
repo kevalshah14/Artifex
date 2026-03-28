@@ -6,6 +6,8 @@
 
 import { MujocoModule } from "./types";
 
+const GOAL_STL_URL = new URL('./components/goal.stl', import.meta.url).href;
+
 /**
  * RobotLoader
  * Handles fetching robot XML files and their dependencies (meshes, textures) from remote URLs.
@@ -80,73 +82,53 @@ export class RobotLoader {
                 this.mujoco.FS.writeFile(`/working/${fname}`, buffer);
             }
         }
+
+        // Mount local goal mesh into MuJoCo virtual FS so scene XML can reference it.
+        // Write to both /working/custom and /working/assets/custom because many
+        // menagerie scenes use compiler meshdir="assets".
+        try {
+            try { this.mujoco.FS.mkdir('/working/custom'); } catch (e) { /* ignore */ }
+            try { this.mujoco.FS.mkdir('/working/assets'); } catch (e) { /* ignore */ }
+            try { this.mujoco.FS.mkdir('/working/assets/custom'); } catch (e) { /* ignore */ }
+            const goalRes = await fetch(GOAL_STL_URL);
+            if (goalRes.ok) {
+                const goalBuffer = new Uint8Array(await goalRes.arrayBuffer());
+                this.mujoco.FS.writeFile('/working/custom/goal.stl', goalBuffer);
+                this.mujoco.FS.writeFile('/working/assets/custom/goal.stl', goalBuffer);
+            } else {
+                console.warn(`Failed to fetch local goal.stl: ${goalRes.status} ${goalRes.statusText}`);
+            }
+        } catch (e) {
+            console.warn(`Failed to mount local goal.stl: ${String(e)}`);
+        }
         return { isDouble, isStacking };
     }
 
-    // Modifies the standard XMLs to add our specific demo objects (cubes, trays)
+    // Modifies the standard XMLs to add our specific demo objects (no default cubes).
     private patchSingleRobot(fname: string, sceneFile: string, isStacking: boolean, text: string): string {
         if (fname === sceneFile) {
+            // Inject mesh asset for the goal post.
+            const goalAsset = '<mesh name="goal_post_mesh" file="custom/goal.stl" scale="0.007 0.007 0.007"/>';
+            if (text.includes('</asset>')) {
+                text = text.replace('</asset>', `${goalAsset}</asset>`);
+            } else {
+                text = text.replace('</mujoco>', `<asset>${goalAsset}</asset></mujoco>`);
+            }
+
+            const goalBody =
+                '<body name="goal_post" pos="0.65 1.5 0">' +
+                '<geom type="mesh" mesh="goal_post_mesh" rgba="0.9 0.9 0.9 1" mass="0.2" condim="4" friction="1 0.5 0.01"/>' +
+                '</body>';
+
             let injection = '';
             if (isStacking) {
-                const colors = [
-                    '0.8 0.1 0.1 1', // Red
-                    '0.0 0.8 0.8 1', // Cyan (Changed from Blue)
-                    '0.1 0.8 0.1 1', // Green
-                    '0.8 0.8 0.1 1'  // Yellow
-                ];
-                
-                const positions: {x: number, y: number}[] = [];
-                
-                // Inject 20 cubes for stacking demo
-                for (let i = 0; i < 20; i++) {
-                    let x = 0;
-                    let y = 0;
-                    let valid = false;
-                    let attempts = 0;
-                    
-                    while (!valid && attempts < 200) {
-                        const minR = 0.35;
-                        const maxR = 0.8;
-                        const r = Math.sqrt(Math.random() * (maxR*maxR - minR*minR) + minR*minR);
-                        const theta = Math.random() * 2 * Math.PI;
-                        
-                        x = r * Math.cos(theta);
-                        y = r * Math.sin(theta);
-                        
-                        valid = true;
-                        
-                        // Avoid stack base (0.6, 0) which is now larger (0.1 half-extent = 0.2 width)
-                        // Use 0.35 radius to be safe
-                        const distStack = Math.sqrt((x - 0.6)**2 + (y - 0)**2);
-                        if (distStack < 0.35) valid = false;
-
-                        // Avoid other cubes
-                        if (valid) {
-                            for (const p of positions) {
-                                const d2 = (p.x - x)**2 + (p.y - y)**2;
-                                if (d2 < 0.004) { // ~6.3cm separation
-                                    valid = false; 
-                                    break; 
-                                }
-                            }
-                        }
-                        attempts++;
-                    }
-
-                    if (valid) {
-                        positions.push({x, y});
-                        const color = colors[i % 4];
-                        injection += `<body name="cube${i}" pos="${x.toFixed(3)} ${y.toFixed(3)} 0.02"><freejoint/><geom type="box" size="0.02 0.02 0.02" rgba="${color}" mass="0.05" friction="1.5 0.3 0.1" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2" condim="4"/></body>`;
-                    }
-                }
-                // Increased stack_base size from 0.05 to 0.1 (2x width/length) - now 20cm x 20cm tray
+                // Keep only the stack base; do not spawn cubes at startup.
                 injection += `<body name="stack_base" pos="0.6 0 0.0"><geom type="box" size="0.1 0.1 0.005" rgba="0.3 0.3 0.3 1"/></body>`;
             } else {
-                 // Inject single cube and tray
-                 // Tray size doubled from 0.08 to 0.16. Walls adjusted accordingly.
-                injection = `<body name="cube" pos="0.4 -0.1 0.04"><freejoint/><geom type="box" size="0.02 0.02 0.02" rgba="1 0 0 1" mass="0.05" friction="2 0.3 0.1" solref="0.01 1" solimp="0.95 0.99 0.001 0.5 2" condim="4"/></body><body name="tray" pos="0.4 0.2 0.0"><geom type="box" size="0.16 0.16 0.005" pos="0 0 0.005" rgba="0.8 0.8 0.8 1"/><geom type="box" size="0.16 0.005 0.02" pos="0 0.16 0.02" rgba="0.8 0.8 0.8 1"/><geom type="box" size="0.005 0.16 0.02" pos="-0.16 0 0.02" rgba="0.8 0.8 0.8 1"/></body>`;
+                // Keep tray only; do not spawn cube at startup.
+                injection = `<body name="tray" pos="0.4 0.2 0.0"><geom type="box" size="0.16 0.16 0.005" pos="0 0 0.005" rgba="0.8 0.8 0.8 1"/><geom type="box" size="0.16 0.005 0.02" pos="0 0.16 0.02" rgba="0.8 0.8 0.8 1"/><geom type="box" size="0.005 0.16 0.02" pos="-0.16 0 0.02" rgba="0.8 0.8 0.8 1"/></body>`;
             }
-            text = text.replace('</worldbody>', injection + '</worldbody>');
+            text = text.replace('</worldbody>', injection + goalBody + '</worldbody>');
         }
         // Ensure Panda has a named gripper actuator and a TCP site for IK
         if (fname.endsWith('panda.xml')) {

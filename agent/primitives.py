@@ -65,10 +65,14 @@ async def send_command(cmd: dict, timeout: float = 30.0) -> dict:
             print(f"[primitives]   place_at result: success={result.get('success')}, placed_at={result.get('placed_at')}")
         elif action == 'get_all_objects':
             objects = result.get('objects', [])
-            print(f"[primitives]   objects count: {len(objects)}")
+            landmarks = result.get('landmarks', [])
+            print(f"[primitives]   objects count: {len(objects)}, landmarks count: {len(landmarks)}")
             for obj in objects:
                 pos = obj.get('position', [])
-                print(f"[primitives]     {obj.get('name')}: pos=({pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f}), color={obj.get('color')}")
+                print(f"[primitives]     obj {obj.get('name')}: pos=({pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f}), color={obj.get('color')}")
+            for lm in landmarks:
+                pos = lm.get('position', [])
+                print(f"[primitives]     lmk {lm.get('name')}: pos=({pos[0]:.4f}, {pos[1]:.4f}, {pos[2]:.4f})")
         return result
     except asyncio.TimeoutError:
         print(f"[primitives] TIMEOUT for: {cmd.get('action', 'unknown')}")
@@ -84,22 +88,24 @@ async def send_command(cmd: dict, timeout: float = 30.0) -> dict:
 # PRIMITIVES — these are what the agent composes
 # ─────────────────────────────────────────────
 
-async def move_to(body_name: str, x: float, y: float, z: float) -> dict:
-    """Move the robot end-effector to a target position (x, y, z).
+async def move_to(body_name: str, x: float, y: float, z: float, duration: int = 1500) -> dict:
+    """Move the robot end-effector (TCP) to a target position (x, y, z).
     
     Args:
         body_name: Name of the target body or 'end_effector' for the robot arm tip.
         x: Target x coordinate in world frame.
         y: Target y coordinate in world frame.  
         z: Target z coordinate in world frame.
+        duration: Motion duration in ms (default 1500). Use 300-500 for fast strikes.
     
     Returns:
-        dict with 'success' bool and 'position' after move.
+        dict with 'success', 'requested' [x,y,z], and 'actual_tcp' [x,y,z].
     """
     return await send_command({
         "action": "move_to",
         "body_name": body_name,
-        "target": [x, y, z]
+        "target": [x, y, z],
+        "duration": duration,
     })
 
 
@@ -354,12 +360,44 @@ async def reset_scene() -> dict:
     return await send_command({"action": "reset_scene"})
 
 
+async def attach_gripper(gripper_xml: str, tcp_offset: str = "0 0 0.1") -> dict:
+    """Attach a custom gripper/tool to the robot's hand body.
+
+    The gripper_xml is injected as a child of the Panda's 'hand' body,
+    alongside the existing default fingers.  Use MuJoCo MJCF body/geom
+    elements.  A <freejoint/> is NOT added (the tool is rigidly attached).
+
+    Args:
+        gripper_xml: MJCF XML for the gripper (body/geom elements).
+        tcp_offset: New TCP site position relative to the hand body
+                    as "x y z" string (default "0 0 0.1").  Set further
+                    out if the tool extends beyond the default fingers.
+
+    Returns:
+        dict with 'success' and 'message'.
+    """
+    return await send_command({
+        "action": "attach_gripper",
+        "gripper_xml": gripper_xml,
+        "tcp_offset": tcp_offset,
+    })
+
+
+async def detach_gripper() -> dict:
+    """Remove any previously attached custom gripper from the robot.
+
+    Returns:
+        dict with 'success' and 'message'.
+    """
+    return await send_command({"action": "detach_gripper"})
+
+
 # Registry of all primitives for the agent to reference
 PRIMITIVES = {
     "move_to": {
         "fn": move_to,
-        "signature": "move_to(body_name: str, x: float, y: float, z: float) -> dict",
-        "description": "Move the robot end-effector to target position (x, y, z)."
+        "signature": "move_to(body_name: str, x: float, y: float, z: float, duration: int = 1500) -> dict",
+        "description": "Move the robot TCP (tool tip) to target position. duration in ms (default 1500; use 300-500 for fast strikes). Returns requested + actual_tcp positions."
     },
     "set_gripper": {
         "fn": set_gripper,
@@ -379,7 +417,7 @@ PRIMITIVES = {
     "get_all_objects": {
         "fn": get_all_objects,
         "signature": "get_all_objects() -> dict",
-        "description": "Get list of all manipulable objects with their positions, colors, sizes."
+        "description": "Get all scene bodies: 'objects' (movable, with freejoint) + 'landmarks' (fixed bodies like goal_post). Check both!"
     },
     "pick_up": {
         "fn": pick_up,
@@ -435,5 +473,15 @@ PRIMITIVES = {
         "fn": reset_scene,
         "signature": "reset_scene() -> dict",
         "description": "Reset the simulation to its initial state with randomized cube positions."
+    },
+    "attach_gripper": {
+        "fn": attach_gripper,
+        "signature": "attach_gripper(gripper_xml: str, tcp_offset: str = '0 0 0.1') -> dict",
+        "description": "Attach a custom gripper/tool to the robot hand. Provide MJCF body/geom XML. Set tcp_offset to adjust IK target point."
+    },
+    "detach_gripper": {
+        "fn": detach_gripper,
+        "signature": "detach_gripper() -> dict",
+        "description": "Remove any previously attached custom gripper from the robot."
     },
 }

@@ -1,0 +1,11 @@
+{
+  "name": "add_cup",
+  "description": "Adds a cup object to the scene at the specified position. The cup is composed of a cylinder body and a capsule handle.",
+  "signature": "add_cup(x: float, y: float, z: float) -> dict",
+  "source_code": "async def add_cup(x: float, y: float, z: float) -> dict:\n    \"\"\"Adds a cup object to the scene at the specified position.\"\"\"\n    # Cup body: cylinder (radius 0.03, half-height 0.04)\n    # Handle: capsule (radius 0.005, half-length 0.015) attached to side\n    cup_body_xml = \"\"\"\n        <geom type=\"cylinder\" size=\"0.03 0.04\" rgba=\"0.9 0.9 0.9 1\" mass=\"0.1\" condim=\"4\" friction=\"1 0.5 0.01\"/>\n        <geom type=\"capsule\" size=\"0.005 0.015\" pos=\"0.035 0 0\" euler=\"0 90 0\" rgba=\"0.9 0.9 0.9 1\" mass=\"0.01\"/>\n    \"\"\"\n    result = await add_custom_object(\"cup\", x, y, z, body_xml=cup_body_xml)\n    return result",
+  "composed_from": [
+    "add_custom_object"
+  ],
+  "created_at": 1774736047.938715,
+  "invocation_count": 2
+}

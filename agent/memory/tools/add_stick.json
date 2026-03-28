@@ -1,0 +1,11 @@
+{
+  "name": "add_stick",
+  "description": "Adds a stick object to the scene.",
+  "signature": "add_stick(x: float, y: float, z: float) -> dict",
+  "source_code": "async def add_stick(x, y, z):\n    return await add_custom_object('stick', x, y, z, body_xml='<geom type=\"box\" size=\"0.15 0.01 0.01\" rgba=\"0.5 0.3 0.1 1\" mass=\"0.1\"/>')",
+  "composed_from": [
+    "add_custom_object"
+  ],
+  "created_at": 1774738152.144629,
+  "invocation_count": 1
+}

@@ -16,9 +16,9 @@ const a4 = 0.0825;
 const a5 = -0.0825; // Note: Paper uses absolute value for some calcs, but DH is negative
 const a7 = 0.088;
 
-// Distance from Flange to End Effector. 
-// In our MuJoCo scene, tcp is offset by 0.1m from the hand/flange connection point.
-const dEE = 0.10; 
+// Default distance from flange/hand to tool center point (TCP).
+// Can be overridden at runtime when custom grippers move the tcp site.
+const DEFAULT_D_EE = 0.10;
 
 // Precomputed lengths
 const LL24 = Math.sqrt(d3 * d3 + a4 * a4); 
@@ -38,7 +38,11 @@ const Q_MAX = [ 2.8973,  1.7628,  2.8973, -0.0698,  2.8973,  3.7525,  2.8973];
  * @param q7 Fixed redundancy parameter (Joint 7 angle)
  * @return Array of valid joint configurations [q1, q2, q3, q4, q5, q6, q7]
  */
-export function calculateAnalyticalIK(transform: THREE.Matrix4, q7: number): number[][] {
+export function calculateAnalyticalIK(
+    transform: THREE.Matrix4,
+    q7: number,
+    dEeOverride: number = DEFAULT_D_EE,
+): number[][] {
     const validSolutions: number[][] = [];
 
     // --- Pre-calculation Setup ---
@@ -59,6 +63,7 @@ export function calculateAnalyticalIK(transform: THREE.Matrix4, q7: number): num
     // The paper performs calculations relative to the wrist.
     // p7 = pEE - (dF + dEE) * zEE
     // This moves strictly backwards along the EE Z-axis.
+    const dEE = dEeOverride > 0 ? dEeOverride : DEFAULT_D_EE;
     const p7 = pEE.clone().sub(zEE.clone().multiplyScalar(dF + dEE));
 
     // 2. Calculate p6 (Origin of Frame 6)

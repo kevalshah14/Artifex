@@ -43,6 +43,8 @@ export class SimBridge {
             move_body: (cmd) => this.handleMoveBody(cmd),
             reset_scene: () => this.handleResetScene(),
             clear_objects: (cmd) => this.handleClearObjects(cmd),
+            attach_gripper: (cmd) => this.handleAttachGripper(cmd),
+            detach_gripper: () => this.handleDetachGripper(),
         };
     }
 
@@ -183,7 +185,6 @@ export class SimBridge {
         const sim = this.sim;
         if (!sim?.mjModel || !sim.mjData) return { success: false, error: 'Sim not ready' };
 
-        // Collect body IDs that have a free joint (= manipulable objects)
         const freeJointBodies = new Set<number>();
         for (let j = 0; j < sim.mjModel.njnt; j++) {
             if (sim.mjModel.jnt_type[j] === 0) { // mjJNT_FREE
@@ -191,16 +192,21 @@ export class SimBridge {
             }
         }
 
-        const GEOM_TYPES: Record<number, string> = { 0: 'plane', 2: 'sphere', 3: 'capsule', 4: 'ellipsoid', 5: 'cylinder', 6: 'box' };
+        const GEOM_TYPES: Record<number, string> = { 0: 'plane', 2: 'sphere', 3: 'capsule', 4: 'ellipsoid', 5: 'cylinder', 6: 'box', 7: 'mesh' };
+
+        const SKIP_NAMES = new Set(['world', '', 'base', 'link0', 'link1', 'link2', 'link3', 'link4', 'link5', 'link6', 'link7', 'hand', 'left_finger', 'right_finger']);
 
         const objects: Array<Record<string, unknown>> = [];
-        for (const bodyId of freeJointBodies) {
+        const landmarks: Array<Record<string, unknown>> = [];
+
+        for (let bodyId = 1; bodyId < sim.mjModel.nbody; bodyId++) {
             const name = getName(sim.mjModel, sim.mjModel.name_bodyadr[bodyId]);
-            if (!name || name === 'world') continue;
+            if (!name || SKIP_NAMES.has(name)) continue;
+
             const pos = this.getBodyPosition(bodyId);
             const color = this.getBodyGeomColor(bodyId);
 
-            let shape = 'box';
+            let shape = 'unknown';
             for (let g = 0; g < sim.mjModel.ngeom; g++) {
                 if (sim.mjModel.geom_bodyid[g] === bodyId) {
                     shape = GEOM_TYPES[sim.mjModel.geom_type[g]] ?? 'unknown';
@@ -208,9 +214,13 @@ export class SimBridge {
                 }
             }
 
-            objects.push({ name, shape, position: pos, color });
+            if (freeJointBodies.has(bodyId)) {
+                objects.push({ name, shape, position: pos, color, movable: true });
+            } else {
+                landmarks.push({ name, shape, position: pos, movable: false });
+            }
         }
-        return { success: true, objects };
+        return { success: true, objects, landmarks };
     }
 
     private async handleGetBodyPosition(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -232,11 +242,20 @@ export class SimBridge {
         if (!sim?.mjData) return { success: false, error: 'Sim not ready' };
 
         const target = cmd.target as number[];
+        const duration = (cmd.duration as number) ?? 1500;
         const pos = new THREE.Vector3(target[0], target[1], target[2]);
-        sim.moveIkTargetTo(pos, 1500);
+        sim.moveIkTargetTo(pos, duration);
         sim.setIkEnabled(true);
-        await this.waitFrames(120); // ~2 seconds at 60fps
-        return { success: true, position: target };
+        const frames = Math.max(30, Math.round((duration / 1000) * 60) + 30);
+        await this.waitFrames(frames);
+
+        // Return actual TCP position so the agent knows where it really ended up
+        const sid = sim.ikSys.gripperSiteId;
+        const actual: [number, number, number] = sid >= 0
+            ? [sim.mjData.site_xpos[sid * 3], sim.mjData.site_xpos[sid * 3 + 1], sim.mjData.site_xpos[sid * 3 + 2]]
+            : target as [number, number, number];
+
+        return { success: true, requested: target, actual_tcp: actual };
     }
 
     private async handleSetGripper(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -632,5 +651,104 @@ export class SimBridge {
         await this.waitFrames(30);
 
         return { success: true, message: 'Scene reset to initial state' };
+    }
+
+    // ─── Gripper attachment ──────────────────────────────
+
+    private static readonly GRIPPER_MARKER_START = '<!-- CUSTOM_GRIPPER_START -->';
+    private static readonly GRIPPER_MARKER_END   = '<!-- CUSTOM_GRIPPER_END -->';
+
+    /** Locate panda.xml in the virtual FS (path varies by menagerie version). */
+    private findPandaXmlPath(): string | null {
+        for (const p of ['/working/assets/panda.xml', '/working/panda.xml']) {
+            try {
+                this.readWorkingText(p);
+                return p;
+            } catch { /* try next */ }
+        }
+        return null;
+    }
+
+    private async handleAttachGripper(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel) return { success: false, error: 'Sim not ready' };
+
+        const gripperXml = cmd.gripper_xml as string;
+        const tcpOffset  = cmd.tcp_offset as string | undefined;
+        if (!gripperXml) return { success: false, error: 'Missing gripper_xml' };
+
+        const pandaPath = this.findPandaXmlPath();
+        if (!pandaPath) return { success: false, error: 'Could not locate panda.xml in /working' };
+
+        try {
+            let xml = this.readWorkingText(pandaPath);
+
+            // Strip any previously injected custom gripper
+            const stripRe = new RegExp(
+                `\\s*${SimBridge.GRIPPER_MARKER_START}[\\s\\S]*?${SimBridge.GRIPPER_MARKER_END}`,
+                'm',
+            );
+            xml = xml.replace(stripRe, '');
+
+            // Wrap the new gripper in markers
+            const wrapped =
+                `\n${SimBridge.GRIPPER_MARKER_START}\n` +
+                `${gripperXml.trim()}\n` +
+                `${SimBridge.GRIPPER_MARKER_END}\n`;
+
+            // Inject as child of <body name="hand" ...>  (same anchor as ToolLoader)
+            xml = xml.replace(
+                /(<body[^>]*name=["']hand["'][^>]*>)/,
+                `$1${wrapped}`,
+            );
+
+            // Optionally update the tcp site offset for IK targeting
+            if (tcpOffset) {
+                xml = xml.replace(
+                    /(<site[^>]*name=["']tcp["'][^>]*?)pos=["'][^"']*["']/,
+                    `$1pos="${tcpOffset}"`,
+                );
+            }
+
+            this.writeWorkingText(pandaPath, xml);
+            sim.reloadFromWorkingScene();
+            await this.waitFrames(30);
+
+            return { success: true, message: 'Custom gripper attached', tcp_offset: tcpOffset ?? '0 0 0.1' };
+        } catch (e) {
+            return { success: false, error: `Failed to attach gripper: ${e}` };
+        }
+    }
+
+    private async handleDetachGripper(): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel) return { success: false, error: 'Sim not ready' };
+
+        const pandaPath = this.findPandaXmlPath();
+        if (!pandaPath) return { success: false, error: 'Could not locate panda.xml' };
+
+        try {
+            let xml = this.readWorkingText(pandaPath);
+            const stripRe = new RegExp(
+                `\\s*${SimBridge.GRIPPER_MARKER_START}[\\s\\S]*?${SimBridge.GRIPPER_MARKER_END}`,
+                'm',
+            );
+            let cleaned = xml.replace(stripRe, '');
+            if (cleaned === xml) return { success: true, message: 'No custom gripper to remove' };
+
+            // Restore tcp offset to default
+            cleaned = cleaned.replace(
+                /(<site[^>]*name=["']tcp["'][^>]*?)pos=["'][^"']*["']/,
+                '$1pos="0 0 0.1"',
+            );
+
+            this.writeWorkingText(pandaPath, cleaned);
+            sim.reloadFromWorkingScene();
+            await this.waitFrames(30);
+
+            return { success: true, message: 'Custom gripper detached' };
+        } catch (e) {
+            return { success: false, error: `Failed to detach gripper: ${e}` };
+        }
     }
 }

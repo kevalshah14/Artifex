@@ -30,6 +30,7 @@ export class IkSystem {
     gripperSiteId = -1;
     
     private qNeutral = [0, -0.785, 0, -2.356, 0, 1.571, 0.785]; // Preferred "home" pose
+    private eeOffsetMeters = 0.10; // flange/hand -> tcp distance used by analytical IK
     
     // Joint 7 parameters for redundancy resolution
     // We scan q7 to find the global optimum closest to current/neutral
@@ -55,6 +56,12 @@ export class IkSystem {
     
     init(mjModel: MujocoModel, isDouble: boolean) {
         // Reset internal state if needed
+    }
+
+    setEeOffsetMeters(v: number) {
+        if (Number.isFinite(v) && v > 0.01) {
+            this.eeOffsetMeters = v;
+        }
     }
     
     syncToSite(mjData: MujocoData) {
@@ -100,7 +107,7 @@ export class IkSystem {
 
         // Helper to check and update best
         const processCandidateQ7 = (q7: number) => {
-             const solutions = calculateAnalyticalIK(transform, q7);
+             const solutions = calculateAnalyticalIK(transform, q7, this.eeOffsetMeters);
              for (const sol of solutions) {
                  const distCurrent = squaredDistance(sol, currentQ);
                  const distNeutral = squaredDistance(sol, this.qNeutral);

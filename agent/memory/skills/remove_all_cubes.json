@@ -1,0 +1,12 @@
+{
+  "name": "remove_all_cubes",
+  "description": "Removes all objects from the scene that have 'cube' in their name.",
+  "source_code": "async def remove_all_cubes():\n    \"\"\"Removes all cubes from the scene.\"\"\"\n    # 1. Get list of all objects\n    objects_result = await get_all_objects()\n    if not objects_result['success']:\n        return {'success': False, 'message': 'Failed to get object list.'}\n\n    # 2. Iterate through objects and remove cubes\n    for obj in objects_result['objects']:\n        if 'cube' in obj['name']:\n            print(f\"Removing object: {obj['name']}\")\n            remove_result = await remove_body(obj['name'])\n            if not remove_result['success']:\n                print(f\"Failed to remove {obj['name']}\")\n                # Continue to next object even if one fails\n\n    return {'success': True, 'message': 'All cubes removed.'}",
+  "tools_used": [
+    "get_all_objects",
+    "remove_body"
+  ],
+  "tools_created": [],
+  "created_at": 1774736004.0050728,
+  "invocation_count": 2
+}

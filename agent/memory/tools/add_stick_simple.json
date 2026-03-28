@@ -1,0 +1,11 @@
+{
+  "name": "add_stick_simple",
+  "description": "Adds a stick to the scene using a box primitive.",
+  "signature": "add_stick_simple(x: float, y: float, z: float) -> dict",
+  "source_code": "async def add_stick_simple(x, y, z):\n    return await add_object('stick', x, y, z, shape='box', color='brown', size=0.15)",
+  "composed_from": [
+    "add_object"
+  ],
+  "created_at": 1774738158.2712371,
+  "invocation_count": 1
+}
