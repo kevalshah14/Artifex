@@ -1,0 +1,9 @@
+{
+  "name": "artifex-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Root package for DigitalOcean App Platform detection",
+  "scripts": {
+    "build": "cd sim && npm install && npm run build"
+  }
+}

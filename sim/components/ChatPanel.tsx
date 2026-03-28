@@ -8,6 +8,7 @@ import {
 } from "@assistant-ui/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Thread } from "@/components/assistant-ui/thread";
+import { PRIMITIVE_TOOLS } from "@/data/toolData";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -65,28 +66,13 @@ export function ChatPanel() {
   const runtime = useLocalRuntime(GeminiAdapter);
 
   const aui = useAui({
-    suggestions: Suggestions([
-      {
-        title: "Sort Objects",
-        label: "Sort the red blocks to the left side",
-        prompt: "Sort the red blocks to the left side",
-      },
-      {
-        title: "Stack Objects",
-        label: "Stack all objects by color",
-        prompt: "Stack all objects by color",
-      },
-      {
-        title: "Move Gripper",
-        label: "Move the gripper to position (0.3, 0, 0.4)",
-        prompt: "Move the gripper to position (0.3, 0, 0.4)",
-      },
-      {
-        title: "Scene Understanding",
-        label: "What objects are on the table?",
-        prompt: "What objects are on the table?",
-      },
-    ]),
+    suggestions: Suggestions(
+      PRIMITIVE_TOOLS.map((tool) => ({
+        title: tool.suggestion.title,
+        label: tool.suggestion.label,
+        prompt: tool.suggestion.prompt,
+      }))
+    ),
   });
 
   return (
