@@ -84,12 +84,20 @@ const ThreadWelcome: FC = () => {
   return (
     <div className="aui-thread-welcome-root mx-auto my-auto flex w-full max-w-(--thread-max-width) grow flex-col">
       <div className="aui-thread-welcome-center flex w-full grow flex-col items-center justify-center">
-        <div className="aui-thread-welcome-message flex size-full flex-col justify-center px-4">
-          <h1 className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both font-semibold text-2xl duration-200 text-violet-400">
-            Artifex
-          </h1>
-          <p className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-zinc-400 text-base delay-75 duration-200">
-            I'm Artifex. Describe a robot task — I'll help you solve it.
+        <div className="aui-thread-welcome-message flex size-full flex-col justify-center px-4 gap-3">
+          <div className="flex items-center gap-3 fade-in slide-in-from-bottom-1 animate-in fill-mode-both duration-300">
+            <div className="w-10 h-10 rounded-xl bg-violet-500/15 border border-violet-500/20 flex items-center justify-center">
+              <svg className="w-5 h-5 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            </div>
+            <div>
+              <h1 className="aui-thread-welcome-message-inner font-bold text-lg text-zinc-100 tracking-tight">
+                Artifex Assistant
+              </h1>
+              <p className="text-[11px] font-mono text-violet-400/70">READY</p>
+            </div>
+          </div>
+          <p className="aui-thread-welcome-message-inner fade-in slide-in-from-bottom-1 animate-in fill-mode-both text-zinc-500 text-sm delay-75 duration-200 leading-relaxed">
+            Describe a robot task, ask questions about the simulation, or explore the tools below.
           </p>
         </div>
       </div>
@@ -100,7 +108,7 @@ const ThreadWelcome: FC = () => {
 
 const ThreadSuggestions: FC = () => {
   return (
-    <div className="aui-thread-welcome-suggestions grid w-full @md:grid-cols-2 gap-2 pb-4">
+    <div className="aui-thread-welcome-suggestions grid w-full @md:grid-cols-2 gap-2 pb-4 px-1">
       <ThreadPrimitive.Suggestions>
         {() => <ThreadSuggestionItem />}
       </ThreadPrimitive.Suggestions>
@@ -111,7 +119,18 @@ const ThreadSuggestions: FC = () => {
 const ThreadSuggestionItem: FC = () => {
   return (
     <div className="aui-thread-welcome-suggestion-display fade-in slide-in-from-bottom-2 @md:nth-[n+3]:block nth-[n+3]:hidden animate-in fill-mode-both duration-200">
-      <SuggestionPrimitive.Trigger send render={<Button variant="ghost" className="aui-thread-welcome-suggestion h-auto w-full @md:flex-col flex-wrap items-start justify-start gap-1 rounded-3xl border border-zinc-700 bg-zinc-800/50 px-4 py-3 text-left text-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800 text-zinc-200" />}><SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1 font-medium" /><SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 text-zinc-500 empty:hidden" /></SuggestionPrimitive.Trigger>
+      <SuggestionPrimitive.Trigger
+        send
+        render={
+          <Button
+            variant="ghost"
+            className="aui-thread-welcome-suggestion h-auto w-full flex-col items-start justify-start gap-0.5 rounded-xl border border-zinc-800 bg-zinc-800/30 px-3.5 py-2.5 text-left text-sm transition-all hover:border-violet-500/30 hover:bg-zinc-800/60 hover:shadow-[0_0_12px_rgba(167,139,250,0.06)] text-zinc-200"
+          />
+        }
+      >
+        <SuggestionPrimitive.Title className="aui-thread-welcome-suggestion-text-1 font-medium text-xs text-zinc-300" />
+        <SuggestionPrimitive.Description className="aui-thread-welcome-suggestion-text-2 text-zinc-600 text-[11px] empty:hidden" />
+      </SuggestionPrimitive.Trigger>
     </div>
   );
 };

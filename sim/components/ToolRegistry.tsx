@@ -41,28 +41,26 @@ function ToolCard({ tool }: { tool: Tool }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <div className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2">
+    <div className={`bg-zinc-950 border rounded-lg px-3 py-2.5 transition-all cursor-pointer group ${
+      isExpanded ? "border-violet-500/30 shadow-[0_0_12px_rgba(167,139,250,0.06)]" : "border-zinc-800 hover:border-zinc-700"
+    }`} onClick={() => setIsExpanded(!isExpanded)}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
+          <div className="w-1.5 h-1.5 rounded-full bg-violet-400/60 shrink-0" />
           <span className="font-mono font-semibold text-sm text-violet-300 truncate">
             {tool.name}
           </span>
-          <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 rounded font-mono shrink-0">
+          <span className="text-[10px] bg-violet-500/10 text-violet-400/70 px-1.5 py-px rounded font-mono shrink-0 border border-violet-500/10">
             PRIMITIVE
           </span>
         </div>
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
-        >
-          <ChevronDown
-            className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-          />
-        </button>
+        <ChevronDown
+          className={`w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-400 transition-all shrink-0 ${isExpanded ? "rotate-180 text-violet-400" : ""}`}
+        />
       </div>
-      <p className="text-xs text-zinc-500 mt-1">{tool.description}</p>
+      <p className="text-[11px] text-zinc-500 mt-1 ml-3.5">{tool.description}</p>
       {isExpanded && (
-        <pre className="bg-black rounded p-2 text-xs font-mono text-emerald-300 mt-2 overflow-x-auto whitespace-pre">
+        <pre className="bg-black/60 border border-zinc-800 rounded-md p-2.5 text-[11px] font-mono text-emerald-400/90 mt-2 overflow-x-auto whitespace-pre leading-relaxed">
           {tool.code}
         </pre>
       )}
@@ -82,14 +80,14 @@ export function ToolRegistry({ className = "" }: ToolRegistryProps) {
   return (
     <div className={`flex flex-col h-full ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-zinc-800">
         <div className="flex items-center gap-2">
-          <Wrench className="w-3.5 h-3.5 text-zinc-400" />
-          <span className="text-xs font-mono font-bold tracking-widest text-zinc-400">
+          <Wrench className="w-3.5 h-3.5 text-violet-400/60" />
+          <span className="text-[11px] font-mono font-bold tracking-widest text-zinc-400">
             TOOL REGISTRY
           </span>
         </div>
-        <span className="text-[10px] bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded font-mono">
+        <span className="text-[10px] bg-violet-500/10 text-violet-400/70 px-1.5 py-0.5 rounded font-mono border border-violet-500/10">
           {tools.length}
         </span>
       </div>
@@ -121,11 +119,14 @@ export function ToolRegistry({ className = "" }: ToolRegistryProps) {
       </div>
 
       {/* Tool cards */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
+      <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
         {tools.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-zinc-600">
-            <Sparkles className="w-6 h-6 mb-2" />
-            <p className="text-xs font-mono">No invented tools yet</p>
+          <div className="flex flex-col items-center justify-center py-10 text-zinc-600">
+            <div className="w-10 h-10 rounded-xl bg-zinc-800/50 border border-zinc-800 flex items-center justify-center mb-3">
+              <Sparkles className="w-4 h-4 text-zinc-600" />
+            </div>
+            <p className="text-xs font-mono text-zinc-600">No invented tools yet</p>
+            <p className="text-[10px] text-zinc-700 mt-1">Ask Artifex to create one</p>
           </div>
         ) : (
           tools.map((tool) => <ToolCard key={tool.name} tool={tool} />)
