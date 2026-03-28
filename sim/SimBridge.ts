@@ -136,6 +136,22 @@ export class SimBridge {
         return null;
     }
 
+    /** World-space position of a site attached to a given body (e.g. goal_aim on goal_post). */
+    private getSiteWorldPosIfOnBody(siteName: string, bodyId: number): [number, number, number] | null {
+        const sim = this.sim;
+        if (!sim?.mjModel || !sim.mjData) return null;
+        const m = sim.mjModel;
+        const siteBody = m.site_bodyid;
+        if (!siteBody) return null;
+        for (let s = 0; s < m.nsite; s++) {
+            if (siteBody[s] !== bodyId) continue;
+            if (getName(m, m.name_siteadr[s]) !== siteName) continue;
+            const x = sim.mjData.site_xpos;
+            return [x[s * 3], x[s * 3 + 1], x[s * 3 + 2]];
+        }
+        return null;
+    }
+
     private rgbaToColorName(r: number, g: number, b: number): string {
         if (r > 0.5 && g < 0.3 && b < 0.3) return 'red';
         if (r < 0.3 && g > 0.5 && b > 0.5) return 'cyan';
@@ -280,22 +296,30 @@ export class SimBridge {
         } else if (targetName) {
             const goalId = this.findBodyId(targetName);
             if (goalId === null) return { success: false, error: `Target '${targetName}' not found` };
-            goalPos = this.getBodyPosition(goalId);
+            const mouth = this.getSiteWorldPosIfOnBody('goal_aim', goalId);
+            goalPos = mouth ?? this.getBodyPosition(goalId);
         } else {
             return { success: false, error: 'Provide target_pos [x,y,z] or target_name' };
         }
 
-        // Direction from object toward goal (XY plane only)
-        const dx = goalPos[0] - objPos[0];
-        const dy = goalPos[1] - objPos[1];
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 0.001) return { success: false, error: 'Object and target overlap' };
-        const dirX = dx / dist;
-        const dirY = dy / dist;
+        const followScale = (cmd.follow_scale as number) ?? 1.35;
+        const aimX = goalPos[0];
+        const aimY = goalPos[1];
+
+        const normDirXY = (bx: number, by: number, ax: number, ay: number): [number, number] | null => {
+            const dx = ax - bx;
+            const dy = ay - by;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len < 1e-6) return null;
+            return [dx / len, dy / len];
+        };
+
+        let dirPair = normDirXY(objPos[0], objPos[1], aimX, aimY);
+        if (!dirPair) return { success: false, error: 'Object and aim overlap in XY' };
+        let [dirX, dirY] = dirPair;
 
         const hitZ = strikeZ ?? objPos[2];
 
-        // Phase 1: move to wind-up position (behind object, opposite to goal direction)
         const windUp = new THREE.Vector3(
             objPos[0] - dirX * approachDist,
             objPos[1] - dirY * approachDist,
@@ -303,17 +327,20 @@ export class SimBridge {
         );
         sim.moveIkTargetTo(windUp, 1200);
         sim.setIkEnabled(true);
-        await this.waitFrames(100);
+        await this.waitFrames(130);
 
-        // Read object position right before strike (it may have shifted)
         const preStrikePos = this.getBodyPosition(objectId);
+        const hitZStrike = strikeZ ?? preStrikePos[2];
+        dirPair = normDirXY(preStrikePos[0], preStrikePos[1], aimX, aimY);
+        if (!dirPair) return { success: false, error: 'Pre-strike aim overlap in XY' };
+        [dirX, dirY] = dirPair;
 
-        // Phase 2: fast strike through the object toward the goal
         const followThrough = new THREE.Vector3(
-            objPos[0] + dirX * approachDist,
-            objPos[1] + dirY * approachDist,
-            hitZ
+            preStrikePos[0] + dirX * approachDist * followScale,
+            preStrikePos[1] + dirY * approachDist * followScale,
+            hitZStrike
         );
+
         sim.moveIkTargetTo(followThrough, strikeDuration);
         const strikeFrames = Math.max(20, Math.round((strikeDuration / 1000) * 60) + 20);
         await this.waitFrames(strikeFrames);
@@ -332,6 +359,7 @@ export class SimBridge {
         return {
             success: true,
             object_name: objectName,
+            aim_point: [aimX, aimY, goalPos[2]],
             pre_strike_pos: preStrikePos,
             post_strike_pos: postStrikePos,
             distance_moved: Math.round(moved * 1000) / 1000,

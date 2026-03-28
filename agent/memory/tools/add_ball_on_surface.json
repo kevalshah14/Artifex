@@ -1,0 +1,12 @@
+{
+  "name": "add_ball_on_surface",
+  "description": "Finds the flat square object and adds a ball on top of it.",
+  "signature": "add_ball_on_surface() -> dict",
+  "source_code": "async def add_ball_on_surface():\n    objs = await get_all_objects()\n    # Look for the square object (often named 'box' or 'patch')\n    target = next((o for o in objs['objects'] if 'box' in o['name'] or 'patch' in o['name']), None)\n    if target:\n        pos = target['position']\n        return await add_object(name='ball', x=pos[0], y=pos[1], z=pos[2] + 0.04, shape='sphere', color='red', size=0.02)\n    # Fallback: if no object found, add at a default location\n    return await add_object(name='ball', x=0.5, y=0, z=0.04, shape='sphere', color='red', size=0.02)",
+  "composed_from": [
+    "get_all_objects",
+    "add_object"
+  ],
+  "created_at": 1774740472.786249,
+  "invocation_count": 1
+}

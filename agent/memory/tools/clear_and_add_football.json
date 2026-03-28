@@ -1,0 +1,12 @@
+{
+  "name": "clear_and_add_football",
+  "description": "Clears all objects and adds a football to the scene.",
+  "signature": "clear_and_add_football() -> dict",
+  "source_code": "async def clear_and_add_football():\n    await clear_objects('')\n    return await add_object('football', 0.3, 0.0, 0.05, shape='sphere', color='white', size=0.05)",
+  "composed_from": [
+    "clear_objects",
+    "add_object"
+  ],
+  "created_at": 1774740890.134358,
+  "invocation_count": 1
+}

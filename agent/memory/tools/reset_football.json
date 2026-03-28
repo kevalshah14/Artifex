@@ -1,0 +1,12 @@
+{
+  "name": "reset_football",
+  "description": "Removes the current football and adds a new one at the starting position.",
+  "signature": "reset_football() -> dict",
+  "source_code": "async def reset_football():\n    await remove_body('football')\n    return await add_object('football', 0.6, 0, 0.04, 'sphere', 'white', 0.04)",
+  "composed_from": [
+    "remove_body",
+    "add_object"
+  ],
+  "created_at": 1774740715.030195,
+  "invocation_count": 1
+}

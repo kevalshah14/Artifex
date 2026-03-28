@@ -1,0 +1,11 @@
+{
+  "name": "attach_hockey_stick",
+  "description": "Attaches a hockey stick to the robot hand for striking objects.",
+  "signature": "attach_hockey_stick() -> dict",
+  "source_code": "async def attach_hockey_stick():\n    return await attach_gripper(gripper_xml='<body name=\"hockey_stick\" pos=\"0 0 0.11\"><geom type=\"cylinder\" size=\"0.025 0.15\" rgba=\"0.4 0.2 0.1 1\" mass=\"0.08\"/></body>', tcp_offset=\"0 0 0.26\")",
+  "composed_from": [
+    "attach_gripper"
+  ],
+  "created_at": 1774740694.885909,
+  "invocation_count": 3
+}

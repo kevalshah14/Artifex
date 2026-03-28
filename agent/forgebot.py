@@ -246,11 +246,22 @@ CUSTOM GRIPPER ATTACHMENT
         '</body>',
       tcp_offset="0 0 0.11")
 
+  ── Example: hockey stick (for striking / pushing balls) ──
+    attach_gripper(
+      gripper_xml='<body name="hockey_stick" pos="0 0 0.11">'
+        '<geom type="cylinder" size="0.025 0.15" rgba="0.4 0.2 0.1 1" mass="0.08"/>'
+        '</body>',
+      tcp_offset="0 0 0.26")
+
   TIPS:
     - pos="0 0 0.1" on a child body starts at the fingertip level.
     - Keep tools lightweight (mass 0.01–0.1 kg) to avoid IK instability.
     - Update tcp_offset so the IK target lands at the tool's working tip.
     - The default fingers remain — this is an ADD-ON, not a replacement.
+    - CRITICAL FOR STRIKING: use type="cylinder" (NOT box) for any tool
+      that hits/pushes objects.  A cylinder is rotationally symmetric so the
+      ball always deflects along the swing direction regardless of hand yaw.
+      A box has flat faces that cause the ball to glance sideways.
 
 ════════════════════════════════════════
 CAPABILITY HIERARCHY

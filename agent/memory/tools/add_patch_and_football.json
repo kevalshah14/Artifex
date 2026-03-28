@@ -1,0 +1,11 @@
+{
+  "name": "add_patch_and_football",
+  "description": "Adds a patch object to the table and then places a football on top of it.",
+  "signature": "add_patch_and_football() -> dict",
+  "source_code": "async def add_patch_and_football():\n    # Add the patch\n    res1 = await add_object(name='patch', x=0.3, y=0.0, z=0.02, shape='box', color='green', size=0.05)\n    if not res1.get('success'): return res1\n    # Add the football on top of the patch\n    res2 = await add_object(name='football', x=0.3, y=0.0, z=0.08, shape='sphere', color='white', size=0.04)\n    return res2",
+  "composed_from": [
+    "add_object"
+  ],
+  "created_at": 1774740877.0924742,
+  "invocation_count": 1
+}

@@ -65,6 +65,7 @@ export interface MujocoModel {
   mesh_vert: Float32Array;
   mesh_face: Int32Array;
   geom_bodyid: Int32Array;
+  site_bodyid: Int32Array;
   delete: () => void;
   [key: string]: unknown;
 }

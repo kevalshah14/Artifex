@@ -1,0 +1,12 @@
+{
+  "name": "add_football_on_patch",
+  "description": "Finds the patch object and adds a large football on top of it.",
+  "signature": "add_football_on_patch() -> dict",
+  "source_code": "async def add_football_on_patch():\n    objs = await get_all_objects()\n    patch = next((o for o in objs['objects'] if 'patch' in o['name'].lower()), None)\n    if not patch:\n        return {'success': False, 'error': 'Patch not found'}\n    x, y, z = patch['position']\n    return await add_object(name='football', x=x, y=y, z=z + 0.08, shape='sphere', color='white', size=0.06)",
+  "composed_from": [
+    "get_all_objects",
+    "add_object"
+  ],
+  "created_at": 1774740546.33294,
+  "invocation_count": 2
+}

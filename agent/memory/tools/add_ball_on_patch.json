@@ -1,0 +1,12 @@
+{
+  "name": "add_ball_on_patch",
+  "description": "Finds the patch object and adds a ball on top of it.",
+  "signature": "add_ball_on_patch() -> dict",
+  "source_code": "async def add_ball_on_patch():\n    objs = await get_all_objects()\n    patch = next((o for o in objs['objects'] if 'patch' in o['name'] or 'box' in o['name']), None)\n    if patch:\n        pos = patch['position']\n        return await add_object(name='ball', x=pos[0], y=pos[1], z=pos[2] + 0.04, shape='sphere', color='red', size=0.02)\n    return {'success': False}",
+  "composed_from": [
+    "get_all_objects",
+    "add_object"
+  ],
+  "created_at": 1774740466.652603,
+  "invocation_count": 1
+}

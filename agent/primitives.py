@@ -385,7 +385,7 @@ async def attach_gripper(gripper_xml: str, tcp_offset: str = "0 0 0.1") -> dict:
 
 async def strike_toward(object_name: str, target_name: str = "", target_pos: list = None,
                         approach_dist: float = 0.15, strike_duration: int = 400,
-                        strike_z: float = None) -> dict:
+                        strike_z: float = None, follow_scale: float = 1.35) -> dict:
     """Hit/push an object toward a target using the current gripper/tool.
 
     The backend computes the correct direction vector, wind-up position,
@@ -399,15 +399,17 @@ async def strike_toward(object_name: str, target_name: str = "", target_pos: lis
         approach_dist: How far behind the object to wind up (meters, default 0.15).
         strike_duration: Speed of the strike in ms (default 400 = fast).
         strike_z: Override Z height for the strike. Default = object's current Z.
+        follow_scale: How far past the ball the TCP travels vs approach_dist (default 1.35).
 
     Returns:
-        dict with pre_strike_pos, post_strike_pos, distance_moved, goal_direction.
+        dict with aim_point, pre_strike_pos, post_strike_pos, distance_moved, goal_direction.
     """
     cmd = {
         "action": "strike_toward",
         "object_name": object_name,
         "approach_dist": approach_dist,
         "strike_duration": strike_duration,
+        "follow_scale": follow_scale,
     }
     if target_pos:
         cmd["target_pos"] = target_pos
@@ -523,7 +525,7 @@ PRIMITIVES = {
     },
     "strike_toward": {
         "fn": strike_toward,
-        "signature": "strike_toward(object_name: str, target_name: str = '', target_pos: list = None, approach_dist: float = 0.15, strike_duration: int = 400, strike_z: float = None) -> dict",
-        "description": "Hit/push an object toward a target. Computes correct direction, wind-up, and follow-through automatically. Returns pre/post positions and distance_moved. Use for hockey/pushing tasks."
+        "signature": "strike_toward(object_name: str, target_name: str = '', target_pos: list = None, approach_dist: float = 0.15, strike_duration: int = 400, strike_z: float = None, follow_scale: float = 1.35) -> dict",
+        "description": "Hit/push an object toward a target. For goal_post, aims at goal_aim (mouth centre). Returns aim_point, pre/post positions, distance_moved."
     },
 }
