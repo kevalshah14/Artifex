@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -12,7 +11,6 @@
 
 @theme inline {
   --font-heading: var(--font-sans);
-  --font-sans: 'Geist Variable', sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -53,73 +51,48 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* === Dark-only Design System === */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
+  /* Core palette */
+  --bg: #09090b;
+  --surface: #18181b;
+  --border: #27272a;
+  --accent: #a78bfa;
+  --text: #fafafa;
+  --text-muted: #71717a;
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  /* shadcn/ui dark tokens (dark-only, no light mode) */
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #18181b;
+  --card-foreground: #fafafa;
+  --popover: #18181b;
+  --popover-foreground: #fafafa;
+  --primary: #a78bfa;
+  --primary-foreground: #09090b;
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
+  --muted: #27272a;
+  --muted-foreground: #71717a;
+  --accent: #a78bfa;
+  --accent-foreground: #09090b;
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --input: #27272a;
+  --ring: #a78bfa;
+  --chart-1: #a78bfa;
+  --chart-2: #71717a;
+  --chart-3: #3f3f46;
+  --chart-4: #27272a;
+  --chart-5: #18181b;
+  --radius: 0.5rem;
+  --sidebar: #18181b;
+  --sidebar-foreground: #fafafa;
+  --sidebar-primary: #a78bfa;
+  --sidebar-primary-foreground: #fafafa;
+  --sidebar-accent: #27272a;
+  --sidebar-accent-foreground: #fafafa;
+  --sidebar-border: #27272a;
+  --sidebar-ring: #a78bfa;
 }
 
 @layer base {
@@ -134,93 +107,103 @@
   }
 }
 
-/* === Chat Panel / assistant-ui dark mode overrides === */
+/* === Font display class === */
+.font-display {
+  font-family: 'Inter', sans-serif;
+}
+
+/* === Glow utility === */
+.glow-accent {
+  box-shadow: 0 0 20px rgba(167, 139, 250, 0.15);
+}
+
+/* === assistant-ui dark theme overrides === */
 
 /* Welcome text */
-.dark .aui-thread-welcome-message-inner {
-  color: oklch(0.95 0 0);
+.aui-thread-welcome-message-inner {
+  color: #fafafa;
 }
-.dark .aui-thread-welcome-message-inner + p,
-.dark .aui-thread-welcome-message .text-muted-foreground {
-  color: oklch(0.6 0 0);
+.aui-thread-welcome-message-inner + p,
+.aui-thread-welcome-message .text-muted-foreground {
+  color: #71717a;
 }
 
 /* Assistant message text */
-.dark .aui-assistant-message-content {
-  color: oklch(0.9 0 0);
+.aui-assistant-message-content {
+  color: #e4e4e7;
 }
 
-/* Action bar icons in dark mode */
-.dark .aui-assistant-action-bar-root,
-.dark .aui-user-action-bar-root,
-.dark .aui-branch-picker-root {
-  color: oklch(0.55 0 0);
+/* Action bar icons */
+.aui-assistant-action-bar-root,
+.aui-user-action-bar-root,
+.aui-branch-picker-root {
+  color: #52525b;
 }
 
 /* Markdown code blocks */
-.dark .aui-md-pre {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.08);
+.aui-md-pre {
+  background: rgba(0, 0, 0, 0.4);
+  border-color: #27272a;
 }
-.dark .aui-code-header-root {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.08);
+.aui-code-header-root {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: #27272a;
 }
-.dark .aui-md-inline-code {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.1);
+.aui-md-inline-code {
+  background: rgba(167, 139, 250, 0.1);
+  border-color: #27272a;
 }
 
 /* Markdown links */
-.dark .aui-md-a {
-  color: oklch(0.7 0.15 264);
+.aui-md-a {
+  color: #a78bfa;
 }
 
 /* Markdown blockquote */
-.dark .aui-md-blockquote {
-  border-color: rgba(255, 255, 255, 0.15);
-  color: oklch(0.65 0 0);
+.aui-md-blockquote {
+  border-color: #3f3f46;
+  color: #a1a1aa;
 }
 
 /* Markdown table header */
-.dark .aui-md-th {
-  background: rgba(255, 255, 255, 0.06);
+.aui-md-th {
+  background: rgba(255, 255, 255, 0.04);
 }
-.dark .aui-md-td {
-  border-color: rgba(255, 255, 255, 0.08);
-}
-
-/* Scrollbar in dark chat panel */
-.dark .aui-thread-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-}
-.dark .aui-thread-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+.aui-md-td {
+  border-color: #27272a;
 }
 
-/* Error message dark mode */
-.dark .aui-message-error-root {
+/* Scrollbar */
+.aui-thread-viewport::-webkit-scrollbar-thumb {
+  background: #27272a;
+}
+.aui-thread-viewport::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+/* Error message */
+.aui-message-error-root {
   background: rgba(239, 68, 68, 0.08);
   border-color: rgba(239, 68, 68, 0.3);
-  color: oklch(0.85 0.12 22);
+  color: #fca5a5;
 }
 
-/* Action bar popover in dark mode */
-.dark .aui-action-bar-more-content {
-  background: oklch(0.2 0 0);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: oklch(0.9 0 0);
+/* Action bar popover */
+.aui-action-bar-more-content {
+  background: #18181b;
+  border-color: #27272a;
+  color: #fafafa;
 }
-.dark .aui-action-bar-more-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+.aui-action-bar-more-item:hover {
+  background: #27272a;
 }
 
-/* Scroll-to-bottom button dark mode */
-.dark .aui-thread-scroll-to-bottom {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.1);
-  color: oklch(0.8 0 0);
+/* Scroll-to-bottom button */
+.aui-thread-scroll-to-bottom {
+  background: #18181b;
+  border-color: #27272a;
+  color: #a1a1aa;
 }
-.dark .aui-thread-scroll-to-bottom:hover {
-  background: rgba(255, 255, 255, 0.12);
+.aui-thread-scroll-to-bottom:hover {
+  background: #27272a;
 }
