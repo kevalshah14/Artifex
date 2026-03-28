@@ -1,0 +1,11 @@
+{
+  "name": "add_football_at_position",
+  "description": "Adds a football at a specific coordinate.",
+  "signature": "add_football_at_position(x: float, y: float, z: float) -> dict",
+  "source_code": "async def add_football_at_position(x, y, z):\n    return await add_object(name='football', x=x, y=y, z=z, shape='sphere', color='white', size=0.04)",
+  "composed_from": [
+    "add_object"
+  ],
+  "created_at": 1774741267.664033,
+  "invocation_count": 1
+}

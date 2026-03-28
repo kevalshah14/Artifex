@@ -1,0 +1,11 @@
+{
+  "name": "attach_bat",
+  "description": "Attaches a cylindrical bat to the robot's hand for striking objects.",
+  "signature": "attach_bat() -> dict",
+  "source_code": "async def attach_bat():\n    return await attach_gripper(\n        gripper_xml='<body name=\"bat\" pos=\"0 0 0.11\">' \n                    '<geom type=\"cylinder\" size=\"0.02 0.2\" rgba=\"0.6 0.4 0.2 1\" mass=\"0.1\"/>' \n                    '</body>',\n        tcp_offset=\"0 0 0.31\")",
+  "composed_from": [
+    "attach_gripper"
+  ],
+  "created_at": 1774741277.0876641,
+  "invocation_count": 1
+}

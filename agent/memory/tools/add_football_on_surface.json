@@ -1,0 +1,12 @@
+{
+  "name": "add_football_on_surface",
+  "description": "Adds a football on top of the existing flat square object.",
+  "signature": "add_football_on_surface() -> dict",
+  "source_code": "async def add_football_on_surface():\n    objs = await get_all_objects()\n    surface = next((o for o in objs['landmarks'] if 'stack_base' in o['name']), None)\n    if surface:\n        return await add_object('football', surface['position'][0], surface['position'][1], surface['position'][2] + 0.06, shape='sphere', color='white', size=0.04)\n    return {'success': False, 'message': 'Surface not found'}",
+  "composed_from": [
+    "get_all_objects",
+    "add_object"
+  ],
+  "created_at": 1774741118.7130811,
+  "invocation_count": 3
+}

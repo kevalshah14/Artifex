@@ -117,7 +117,7 @@ export class RobotLoader {
 
             // goal_aim: approximate centre of the opening (mouth) toward the table — not the mesh origin.
             const goalBody =
-                '<body name="goal_post" pos="-0.25 1.5 0">' +
+                '<body name="goal_post" pos="0 1.5 0">' +
                 '<site name="goal_aim" pos="0 -0.42 0.14" size="0.02"/>' +
                 '<geom type="mesh" mesh="goal_post_mesh" rgba="0.9 0.9 0.9 1" mass="0.2" condim="4" friction="1 0.5 0.01"/>' +
                 '</body>';

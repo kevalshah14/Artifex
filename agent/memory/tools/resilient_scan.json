@@ -1,0 +1,12 @@
+{
+  "name": "resilient_scan",
+  "description": "Combines a dynamic wait-step with error-checking to ensure the simulation is ready before returning objects.",
+  "signature": "resilient_scan() -> dict",
+  "source_code": "async def resilient_scan():\n    for _ in range(5):\n        await step_sim(10)\n        objects = await get_all_objects()\n        if objects:\n            return {\"success\": True, \"data\": objects}\n    return {\"success\": False}",
+  "composed_from": [
+    "step_sim",
+    "get_all_objects"
+  ],
+  "created_at": 1774741195.47408,
+  "invocation_count": 0
+}
