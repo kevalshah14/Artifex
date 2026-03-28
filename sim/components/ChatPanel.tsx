@@ -8,7 +8,6 @@ import {
 } from "@assistant-ui/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Thread } from "@/components/assistant-ui/thread";
-import { MessageCircle, X } from "lucide-react";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -30,7 +29,7 @@ const SYSTEM_PROMPT = `You are an assistant for Artifex, an interactive robotics
 4. The detected positions are projected from 2D image coordinates into 3D world coordinates
 5. The robot arm uses inverse kinematics to move to each target, pick it up with the gripper, and place it in a tray or stacking position
 
-**Controls**: The user can enable freeform IK mode to manually control the robot's end-effector position and orientation using a 3D gizmo, adjust simulation speed, pause/resume, and toggle dark mode.
+**Controls**: The user can enable freeform IK mode to manually control the robot's end-effector position and orientation using a 3D gizmo, adjust simulation speed, pause/resume.
 
 Help the user understand and use this simulation effectively. Answer questions about the robot, the detection pipeline, the pick-and-place workflow, and troubleshooting.`;
 
@@ -62,90 +61,39 @@ const GeminiAdapter: ChatModelAdapter = {
   },
 };
 
-interface ChatPanelProps {
-  isOpen: boolean;
-  onClose: () => void;
-  isDarkMode: boolean;
-}
-
-export function ChatPanel({ isOpen, onClose, isDarkMode }: ChatPanelProps) {
+export function ChatPanel() {
   const runtime = useLocalRuntime(GeminiAdapter);
 
   const aui = useAui({
     suggestions: Suggestions([
       {
+        title: "Sort Objects",
+        label: "Sort the red blocks to the left side",
+        prompt: "Sort the red blocks to the left side",
+      },
+      {
+        title: "Stack Objects",
+        label: "Stack all objects by color",
+        prompt: "Stack all objects by color",
+      },
+      {
+        title: "Move Gripper",
+        label: "Move the gripper to position (0.3, 0, 0.4)",
+        prompt: "Move the gripper to position (0.3, 0, 0.4)",
+      },
+      {
         title: "Scene Understanding",
         label: "What objects are on the table?",
         prompt: "What objects are on the table?",
       },
-      {
-        title: "Robot Info",
-        label: "How does the Franka Panda robot work?",
-        prompt: "How does the Franka Panda robot work?",
-      },
-      {
-        title: "Pick & Place",
-        label: "Explain pick and place in robotics",
-        prompt: "Explain pick and place in robotics",
-      },
-      {
-        title: "Detection Modes",
-        label: "What detection modes are available?",
-        prompt: "What detection modes are available?",
-      },
     ]),
   });
-
-  if (!isOpen) return null;
 
   return (
     <AssistantRuntimeProvider aui={aui} runtime={runtime}>
       <TooltipProvider>
-        <div
-          className={`absolute top-4 bottom-4 left-4 right-4 min-[660px]:right-auto min-[660px]:top-10 min-[660px]:left-10 min-[660px]:bottom-10 min-[660px]:w-[420px] rounded-[2.5rem] flex flex-col z-40 overflow-hidden shadow-2xl transition-all border ${
-            isDarkMode
-              ? "bg-slate-900/90 border-white/10 text-slate-100 shadow-slate-950/40"
-              : "bg-white/90 border-white/60 text-slate-800 shadow-slate-200/40"
-          }`}
-          style={{ backdropFilter: "blur(20px) saturate(180%)" }}
-        >
-          {/* Header */}
-          <div
-            className={`px-7 py-5 border-b flex justify-between items-center shrink-0 ${
-              isDarkMode
-                ? "border-white/5 bg-white/5"
-                : "border-slate-100 bg-white/40"
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                  isDarkMode ? "bg-indigo-500/20" : "bg-indigo-50"
-                }`}
-              >
-                <MessageCircle
-                  className={`w-4 h-4 ${isDarkMode ? "text-indigo-400" : "text-indigo-600"}`}
-                />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold leading-none">Chat</h2>
-                <p
-                  className={`text-[10px] mt-1 ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}
-                >
-                  Gemini 2.5 Flash
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-slate-200/20 rounded-full transition-colors text-slate-400"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Thread */}
-          <div className={`flex-1 min-h-0 ${isDarkMode ? "dark" : ""}`}>
+        <div className="flex flex-col h-full w-full bg-zinc-900 text-zinc-100">
+          <div className="flex-1 min-h-0">
             <Thread />
           </div>
         </div>
