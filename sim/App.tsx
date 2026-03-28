@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { v4 as uuidv4 } from 'uuid';
 import { MujocoSim } from './MujocoSim';
+import { SimBridge } from './SimBridge';
 import { ChatPanel } from './components/ChatPanel';
 import { RobotSelector } from './components/RobotSelector';
 import { Toolbar } from './components/Toolbar';
@@ -84,9 +85,10 @@ export function LogOverlay({ log }: LogOverlayProps) {
  * Main Application Component
  */
 export function App() {
-  const containerRef = useRef<HTMLDivElement>(null); 
-  const simRef = useRef<MujocoSim | null>(null);      
-  const isMounted = useRef(true);                     
+  const containerRef = useRef<HTMLDivElement>(null);
+  const simRef = useRef<MujocoSim | null>(null);
+  const bridgeRef = useRef<SimBridge | null>(null);
+  const isMounted = useRef(true);
   const mujocoModuleRef = useRef<MujocoModule | null>(null);          
 
   const [isLoading, setIsLoading] = useState(true);
@@ -135,7 +137,7 @@ export function App() {
         setIsLoading(false); 
       } 
     });
-    return () => { isMounted.current = false; simRef.current?.dispose(); };
+    return () => { isMounted.current = false; bridgeRef.current?.dispose(); simRef.current?.dispose(); };
   }, []);
 
   useEffect(() => {
@@ -157,6 +159,11 @@ export function App() {
                  if (isMounted.current) {
                      simRef.current?.setIkEnabled(false);
                      setIsLoading(false);
+                     // Connect sim to the ForgeBot server
+                     bridgeRef.current?.dispose();
+                     const bridge = new SimBridge();
+                     bridge.attach(simRef.current!);
+                     bridgeRef.current = bridge;
                  }
              })
              .catch(err => { 
