@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { v4 as uuidv4 } from 'uuid';
 import { MujocoSim } from './MujocoSim';
+import { SimBridge } from './SimBridge';
 import { ChatPanel } from './components/ChatPanel';
 import { Header } from './components/Header';
 import { RobotSelector } from './components/RobotSelector';
@@ -89,8 +90,9 @@ export function LogOverlay({ log }: LogOverlayProps) {
 export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const simRef = useRef<MujocoSim | null>(null);
+  const bridgeRef = useRef<SimBridge | null>(null);
   const isMounted = useRef(true);
-  const mujocoModuleRef = useRef<MujocoModule | null>(null);
+  const mujocoModuleRef = useRef<MujocoModule | null>(null);          
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadingStatus, setLoadingStatus] = useState("Initializing Spatial Engine...");
@@ -138,7 +140,7 @@ export function App() {
         setIsLoading(false);
       }
     });
-    return () => { isMounted.current = false; simRef.current?.dispose(); };
+    return () => { isMounted.current = false; bridgeRef.current?.dispose(); simRef.current?.dispose(); };
   }, []);
 
   useEffect(() => {
@@ -160,6 +162,11 @@ export function App() {
                  if (isMounted.current) {
                      simRef.current?.setIkEnabled(false);
                      setIsLoading(false);
+                     // Connect sim to the ForgeBot server
+                     bridgeRef.current?.dispose();
+                     const bridge = new SimBridge();
+                     bridge.attach(simRef.current!);
+                     bridgeRef.current = bridge;
                  }
              })
              .catch(err => {
@@ -566,7 +573,8 @@ export function App() {
                 </div>
                 <div className="space-y-1">
                   <h4 className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Full Prompt</h4>
-                  <p className="text-[10px] font-mono p-3 rounded-xl leading-relaxed border whitespace-pre-wrap bg-zinc-950 border-zinc-800 text-zinc-400">{activeLog.fullPrompt}</p>
+                  <p className="text-[10px] font-mono p-3 r
+                                ounded-xl leading-relaxed border whitespace-pre-wrap bg-zinc-950 border-zinc-800 text-zinc-400">{activeLog.fullPrompt}</p>
                 </div>
                 <div className="space-y-3 flex flex-col min-[660px]:flex-1 min-[660px]:min-h-0">
                   <h4 className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">API Call Results</h4>
