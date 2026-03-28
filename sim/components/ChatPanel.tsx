@@ -5,129 +5,60 @@ import {
 } from "@assistant-ui/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Thread } from "@/components/assistant-ui/thread";
-import { useMemo, useState, useEffect, type RefObject } from "react";
-import { MujocoSim } from "../MujocoSim";
+import { useEffect, useState } from "react";
+import { agentBridge, type AgentEventHandler } from "../agentBridge";
+import { useToolCallStore } from "../toolCallStore";
 
-// ─── WebSocket singleton for the agent backend ──────────────────────
+// ─── Format backend events into readable markdown lines ────────────
 
-const WS_URL = "ws://localhost:8000/ws/chat";
-
-class AgentConnection {
-  private ws: WebSocket | null = null;
-  private listeners: Map<string, Set<(data: Record<string, unknown>) => void>> = new Map();
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private disposed = false;
-  private _ready = false;
-  private _simConnected = false;
-  private initResolve: ((value: unknown) => void) | null = null;
-  private initPromise: Promise<unknown> | null = null;
-
-  get ready() { return this._ready; }
-  get simConnected() { return this._simConnected; }
-
-  connect(): Promise<unknown> {
-    if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve(true);
-    if (this.initPromise) return this.initPromise;
-
-    this.initPromise = new Promise((resolve) => {
-      this.initResolve = resolve;
-      this.doConnect();
-    });
-
-    return this.initPromise;
-  }
-
-  private doConnect() {
-    if (this.disposed) return;
-    try {
-      this.ws = new WebSocket(WS_URL);
-    } catch {
-      if (this.initResolve) { this.initResolve(false); this.initResolve = null; this.initPromise = null; }
-      this.scheduleReconnect();
-      return;
+function formatEvent(data: Record<string, unknown>): string | null {
+  const t = data.type as string;
+  switch (t) {
+    case "thinking":
+      return `**Thinking** — ${data.message}`;
+    case "llm_call":
+      return `**LLM** — ${data.message}`;
+    case "plan":
+      return `**Plan** (step ${data.step}) — ${data.thought}\n> action: \`${data.action}\`${data.tool_name ? ` → \`${data.tool_name}\`` : ""}`;
+    case "executing":
+      return `**Executing** \`${data.tool_name}\`…`;
+    case "executing_skill":
+      return `**Executing skill** \`${data.skill_name}\`…`;
+    case "result":
+    case "skill_result": {
+      const r = data.result as Record<string, unknown> | undefined;
+      const name = data.tool_name ?? data.skill_name ?? "?";
+      const preview = r ? JSON.stringify(r).slice(0, 200) : "";
+      return `**Result** \`${name}\` — \`${preview}\``;
     }
-
-    this.ws.onopen = () => {
-      console.log("[ChatPanel] WS connected to agent backend");
-    };
-
-    this.ws.onmessage = (ev) => {
-      let msg: Record<string, unknown>;
-      try { msg = JSON.parse(ev.data as string); } catch { return; }
-
-      const type = msg.type as string;
-
-      if (type === "init") {
-        this._ready = true;
-        this._simConnected = msg.sim_connected as boolean;
-        if (this.initResolve) { this.initResolve(true); this.initResolve = null; }
-        this.initPromise = null;
-      }
-
-      // Dispatch to type-specific listeners
-      const handlers = this.listeners.get(type);
-      if (handlers) {
-        for (const fn of handlers) fn(msg);
-      }
-      // Dispatch to wildcard listeners
-      const wildcard = this.listeners.get("*");
-      if (wildcard) {
-        for (const fn of wildcard) fn(msg);
-      }
-    };
-
-    this.ws.onclose = () => {
-      this._ready = false;
-      console.log("[ChatPanel] WS disconnected");
-      this.scheduleReconnect();
-    };
-
-    this.ws.onerror = () => {
-      this.ws?.close();
-    };
-  }
-
-  private scheduleReconnect() {
-    if (this.disposed) return;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = setTimeout(() => {
-      if (this.initResolve) { this.initResolve(false); this.initResolve = null; this.initPromise = null; }
-      this.doConnect();
-    }, 3000);
-  }
-
-  on(event: string, fn: (data: Record<string, unknown>) => void) {
-    if (!this.listeners.has(event)) this.listeners.set(event, new Set());
-    this.listeners.get(event)!.add(fn);
-  }
-
-  off(event: string, fn: (data: Record<string, unknown>) => void) {
-    this.listeners.get(event)?.delete(fn);
-  }
-
-  send(data: Record<string, unknown>) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
-    }
-  }
-
-  dispose() {
-    this.disposed = true;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.ws?.close();
-    this.ws = null;
+    case "retry":
+      return `**Retry** ${data.attempt}/${data.max_retries} — ${(data.error as string ?? "").slice(0, 150)}`;
+    case "inventing":
+      return `**Inventing tool** \`${data.tool_name}\``;
+    case "creating_skill":
+      return `**Creating skill** \`${data.skill_name}\``;
+    case "tool_registered":
+      return `**Registered** \`${(data.tool as Record<string, unknown>)?.name ?? "tool"}\``;
+    case "skill_registered":
+      return `**Registered skill** \`${(data.skill as Record<string, unknown>)?.name ?? "skill"}\``;
+    case "evolving":
+      return `**Evolving** — ${data.message}`;
+    case "auto_escalate":
+      return `**Auto-escalate** — ${data.message}`;
+    case "error":
+      return `**Error** — ${data.message}`;
+    case "done":
+      return `**Done** — ${data.summary ?? data.message ?? ""}`;
+    default:
+      return null;
   }
 }
 
-// Singleton — one WS connection shared across re-renders
-const agent = new AgentConnection();
-
-// ─── Adapter: routes chat messages through the agent backend ────────
+// ─── Adapter: streams agent backend events into assistant-ui ────────
 
 function createBackendAdapter(): ChatModelAdapter {
   return {
     async *run({ messages, abortSignal }) {
-      // Get the last user message
       const lastUserMsg = messages.filter((m) => m.role === "user").pop();
       const task = lastUserMsg?.content
         ?.filter((p) => p.type === "text")
@@ -139,151 +70,164 @@ function createBackendAdapter(): ChatModelAdapter {
         return;
       }
 
-      // Make sure we're connected
-      const ok = await agent.connect();
+      const ok = await agentBridge.connect();
       if (!ok) {
-        yield { content: [{ type: "text" as const, text: "Could not connect to the agent backend. Is the server running?" }] };
+        yield {
+          content: [{
+            type: "text" as const,
+            text: "Could not connect to the agent backend.\n\nStart it with:\n```bash\ncd agent && python server.py\n```",
+          }],
+        };
         return;
       }
 
-      // Set up listeners for agent events
-      let parts: string[] = [];
+      // Async queue: events pushed from WS callbacks, consumed by the generator.
+      const queue: Array<{ kind: "event"; text: string } | { kind: "done"; result: Record<string, unknown> }> = [];
+      let wakeUp: (() => void) | null = null;
+      const push = (item: (typeof queue)[number]) => {
+        queue.push(item);
+        wakeUp?.();
+        wakeUp = null;
+      };
+      const waitForItem = () => new Promise<void>((r) => { wakeUp = r; });
 
-      const onEvent = (data: Record<string, unknown>) => {
-        const type = data.type as string;
+      const { addCall, updateCall } = useToolCallStore.getState();
 
-        if (type === "thinking") {
-          parts.push(`🧠 ${data.message}`);
-        } else if (type === "plan") {
-          parts.push(`\n📋 **Plan**: ${data.thought}`);
-        } else if (type === "executing") {
-          parts.push(`⚡ Executing: ${data.tool_name}`);
-        } else if (type === "result") {
-          const result = data.result as Record<string, unknown> | undefined;
-          if (result) {
-            const r = result.result ?? result;
-            parts.push(`✅ ${data.tool_name}: \`${JSON.stringify(r).slice(0, 200)}\``);
+      const onEvent: AgentEventHandler = (data) => {
+        const t = data.type as string;
+
+        // Push executing/result events to the toolCallStore for the Live Calls tab.
+        if (t === "executing" || t === "executing_skill") {
+          const name = (data.tool_name ?? data.skill_name) as string;
+          addCall({
+            id: `${name}-${Date.now()}`,
+            name,
+            args: (data.args as Record<string, unknown>) ?? {},
+            status: "running",
+            startedAt: new Date().toISOString(),
+          });
+        } else if (t === "result" || t === "skill_result") {
+          const name = (data.tool_name ?? data.skill_name) as string;
+          const calls = useToolCallStore.getState().calls;
+          const pending = [...calls].reverse().find((c) => c.name === name && c.status === "running");
+          if (pending) {
+            const r = data.result as Record<string, unknown> | undefined;
+            updateCall(pending.id, {
+              result: r,
+              status: r?.success === false ? "error" : "success",
+              finishedAt: new Date().toISOString(),
+            });
           }
-        } else if (type === "retry") {
-          parts.push(`⚠️ Retry ${data.attempt}/${data.max_retries}: ${(data.error as string ?? "").slice(0, 150)}`);
-        } else if (type === "inventing") {
-          parts.push(`🔧 Inventing tool: ${data.tool_name}`);
-        } else if (type === "tool_registered") {
-          parts.push(`✅ Registered: ${(data.tool as Record<string, unknown>)?.name ?? "tool"}`);
-        } else if (type === "evolving") {
-          parts.push(`🧬 Evolving: ${data.message}`);
-        } else if (type === "auto_escalate") {
-          parts.push(`🚀 Auto-escalating: ${data.message}`);
-        } else if (type === "error") {
-          parts.push(`❌ ${data.message}`);
         }
+
+        if (t === "task_complete") {
+          push({ kind: "done", result: (data.result as Record<string, unknown>) ?? {} });
+          return;
+        }
+
+        const line = formatEvent(data);
+        if (line) push({ kind: "event", text: line });
       };
 
-      agent.on("*", onEvent);
+      agentBridge.on("*", onEvent);
+
+      // Handle abort
+      let aborted = false;
+      const onAbort = () => {
+        aborted = true;
+        push({ kind: "done", result: { success: false, error: "Aborted" } });
+      };
+      abortSignal?.addEventListener("abort", onAbort, { once: true });
 
       // Send the task
-      agent.send({ type: "task", message: task });
+      agentBridge.send({ type: "task", message: task });
 
-      // Wait for completion
-      yield { content: [{ type: "text" as const, text: "⏳ *Sending task to agent...*\n" }] };
+      const lines: string[] = [];
+      let finished = false;
+      let finalResult: Record<string, unknown> = {};
 
-      // Wait for task_complete event
-      const result = await new Promise<Record<string, unknown>>((resolve) => {
-        const onComplete = (data: Record<string, unknown>) => {
-          resolve(data.result as Record<string, unknown>);
-        };
-        agent.on("task_complete", onComplete);
+      // Yield initial state
+      yield { content: [{ type: "text" as const, text: "Sending task to agent…\n" }] };
 
-        // Also handle abort
-        if (abortSignal) {
-          const onAbort = () => {
-            agent.off("task_complete", onComplete);
-            resolve({ success: false, error: "Aborted" });
-          };
-          abortSignal.addEventListener("abort", onAbort, { once: true });
+      while (!finished && !aborted) {
+        if (queue.length === 0) await waitForItem();
+        while (queue.length > 0) {
+          const item = queue.shift()!;
+          if (item.kind === "done") {
+            finished = true;
+            finalResult = item.result;
+          } else {
+            lines.push(item.text);
+          }
         }
-      });
-
-      agent.off("*", onEvent);
-      agent.off("task_complete", () => {});
-
-      // Build the final response
-      const success = result?.success as boolean;
-      const summary = result?.summary as string ?? "";
-      const error = result?.error as string ?? "";
-
-      let text = "";
-      if (parts.length > 0) {
-        text += parts.join("\n") + "\n\n";
-      }
-      if (success) {
-        text += `✅ **Done**${summary ? `: ${summary}` : ""}`;
-      } else {
-        text += `❌ **Failed**${error ? `: ${error}` : ""}`;
+        const progress = finished ? "" : "\n\n_Processing…_";
+        yield { content: [{ type: "text" as const, text: lines.join("\n\n") + progress }] };
       }
 
-      yield { content: [{ type: "text" as const, text }] };
+      // Cleanup
+      agentBridge.off("*", onEvent);
+      abortSignal?.removeEventListener("abort", onAbort);
+
+      // Final yield
+      const success = finalResult?.success as boolean;
+      const summary = (finalResult?.summary as string) ?? "";
+      const error = (finalResult?.error as string) ?? "";
+      const suffix = success
+        ? `\n\n**Task complete**${summary ? ` — ${summary}` : ""}`
+        : `\n\n**Task failed**${error ? ` — ${error}` : ""}`;
+
+      yield { content: [{ type: "text" as const, text: lines.join("\n\n") + suffix }] };
     },
   };
 }
 
 // ─── ChatPanel component ────────────────────────────────────────────
 
-interface ChatPanelProps {
-  simRef: RefObject<MujocoSim | null>;
-}
+export function ChatPanel() {
+  const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
 
-export function ChatPanel({ simRef }: ChatPanelProps) {
-  const [backendStatus, setBackendStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
-
-  const adapter = useMemo(() => createBackendAdapter(), []);
+  const adapter = createBackendAdapter();
   const runtime = useLocalRuntime(adapter);
 
-  // Connect on mount
   useEffect(() => {
-    agent.connect().then((ok) => {
-      setBackendStatus(ok ? "connected" : "disconnected");
+    agentBridge.connect().then((ok) => {
+      setStatus(ok ? "connected" : "disconnected");
     });
 
-    const onStatus = (data: Record<string, unknown>) => {
-      setBackendStatus(data.connected ? "connected" : "disconnected");
+    const onSim: AgentEventHandler = (data) => {
+      setStatus(data.connected ? "connected" : "disconnected");
     };
-    agent.on("sim_status", onStatus);
+    const onConn: AgentEventHandler = (data) => {
+      if (!data.connected) setStatus("disconnected");
+    };
+    agentBridge.on("sim_status", onSim);
+    agentBridge.on("connection", onConn);
 
     return () => {
-      agent.off("sim_status", onStatus);
+      agentBridge.off("sim_status", onSim);
+      agentBridge.off("connection", onConn);
     };
   }, []);
 
-  const statusColor =
-    backendStatus === "connected"
-      ? "bg-emerald-400"
-      : backendStatus === "connecting"
-        ? "bg-amber-400"
+  const dot =
+    status === "connected" ? "bg-emerald-400"
+      : status === "connecting" ? "bg-amber-400 animate-pulse"
         : "bg-red-400";
 
-  const statusLabel =
-    backendStatus === "connected"
-      ? "agent backend"
-      : backendStatus === "connecting"
-        ? "connecting..."
+  const label =
+    status === "connected" ? "agent connected"
+      : status === "connecting" ? "connecting…"
         : "backend offline";
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>
         <div className="flex flex-col h-full w-full bg-zinc-900 text-zinc-100">
-          {/* Chat header */}
           <div className="px-4 py-2.5 border-b border-zinc-800 flex items-center gap-2 shrink-0 bg-zinc-900/80">
-            <div className={`w-2 h-2 rounded-full ${statusColor} ${backendStatus === "connecting" ? "animate-pulse" : ""}`} />
-            <span className="text-xs font-mono font-bold tracking-widest text-zinc-400">
-              CHAT
-            </span>
-            <span className="ml-auto text-[10px] font-mono text-zinc-600">
-              {statusLabel}
-            </span>
+            <div className={`w-2 h-2 rounded-full ${dot}`} />
+            <span className="text-xs font-mono font-bold tracking-widest text-zinc-400">CHAT</span>
+            <span className="ml-auto text-[10px] font-mono text-zinc-600">{label}</span>
           </div>
-          {/* Thread */}
           <div className="flex-1 min-h-0 dark">
             <Thread />
           </div>

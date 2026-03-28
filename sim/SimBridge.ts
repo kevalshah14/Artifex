@@ -35,6 +35,7 @@ export class SimBridge {
             place_at: (cmd) => this.handlePlaceAt(cmd),
             step: (cmd) => this.handleStep(cmd),
             eval_tool: (cmd) => this.handleEvalTool(cmd),
+            capture_image: (cmd) => this.handleCaptureImage(cmd),
         };
     }
 
@@ -278,15 +279,27 @@ export class SimBridge {
         if (!sim?.mjData) return { success: false, error: 'Sim not ready' };
 
         const target = cmd.target as number[];
-        const pos = new THREE.Vector3(target[0], target[1], target[2]);
-        sim.moveIkTargetTo(pos, 1500);
+        const APPROACH_HEIGHT = 0.12;
+
+        // 1) Move above the target (approach from above to avoid collisions)
+        const above = new THREE.Vector3(target[0], target[1], target[2] + APPROACH_HEIGHT);
+        sim.moveIkTargetTo(above, 1500);
         sim.setIkEnabled(true);
         await this.waitFrames(120);
 
-        // Open gripper to release
+        // 2) Descend to the actual placement height
+        const place = new THREE.Vector3(target[0], target[1], target[2]);
+        sim.moveIkTargetTo(place, 1000);
+        await this.waitFrames(90);
+
+        // 3) Open gripper to release
         if (sim.gripperActuatorId >= 0) {
             sim.mjData.ctrl[sim.gripperActuatorId] = 0.08;
         }
+        await this.waitFrames(45);
+
+        // 4) Retract upward so the arm doesn't knock the placed object
+        sim.moveIkTargetTo(above, 800);
         await this.waitFrames(60);
 
         return { success: true, placed_at: target };
@@ -311,5 +324,18 @@ export class SimBridge {
         const taskHint = cmd.task_hint as string ?? '';
 
         return await this.toolLoader.evaluate(toolMjcf, waypoints, taskHint);
+    }
+
+    private async handleCaptureImage(_cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.renderSys) return { success: false, error: 'Sim not ready' };
+
+        try {
+            const dataUrl = sim.renderSys.getCanvasSnapshot(640, 480, 'image/jpeg');
+            const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+            return { success: true, image_base64: base64, mime_type: 'image/jpeg' };
+        } catch (e) {
+            return { success: false, error: `Screenshot failed: ${e}` };
+        }
     }
 }

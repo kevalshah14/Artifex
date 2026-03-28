@@ -5,7 +5,7 @@
 
 import { BoxSelect, ChevronDown, FastForward, Grab, History, Info, Loader2, MousePointer2, RotateCcw, Scan, Send, Settings2, Thermometer, X } from 'lucide-react';
 import { useState } from 'react';
-import { LogOverlay } from '../App';
+// LogOverlay removed — this component is unused in the current UI
 import { DetectedItem, DetectType, LogEntry } from '../types';
 
 interface UnifiedSidebarProps {
@@ -261,7 +261,7 @@ export function UnifiedSidebar({
                   >
                     <div className="relative w-20 rounded-xl overflow-hidden shrink-0 border self-start bg-zinc-950 border-zinc-800">
                       <img src={log.imageSrc} className="w-full h-auto block" alt="Log" />
-                      <LogOverlay log={log} />
+                      {/* LogOverlay removed */}
                     </div>
                     <div className="flex-1 min-w-0 py-1">
                       <div className="flex justify-between items-center mb-1">

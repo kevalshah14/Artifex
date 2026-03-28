@@ -13,30 +13,33 @@ Four-layer capability hierarchy
 
 Self-evolving lifecycle
 ───────────────────────
-  1. Plan    — LLM decides: reuse, invent, or evolve
+  1. Plan    — LLM sees scene image + text, decides: reuse, invent, or evolve
   2. Execute — run the tool/skill
-  3. Retry   — if fail, feed error back to LLM (max 3)
+  3. Retry   — if fail, capture new image, feed error back to LLM (max 3)
   4. Evolve  — if retries exhausted, escalate to population search
   5. Persist — working tools/skills/geometry saved to disk
   6. Reload  — on next startup, everything is loaded back
 """
 
+import base64
 import json
 import asyncio
 import os
 from typing import Optional
 
 from dotenv import load_dotenv
+from google.genai import types
 
-from agent.primitives import PRIMITIVES
+from agent.primitives import PRIMITIVES, capture_scene_image
 from agent.tool_registry import registry, Tool
 from agent.skill_registry import skill_registry, Skill
 from agent.evolution import EvolutionEngine
 from agent.llm_client import generate as llm_generate
 
-# Load .env from sim folder or project root
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', 'sim', '.env'))
-load_dotenv()  # also check project root
+# Load .env from agent/, sim/, or project root
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', 'sim', '.env.local'))
+load_dotenv()
 
 MAX_RETRIES = 3
 
@@ -56,74 +59,93 @@ def init_primitives():
         )
 
 
-
 # ──────────────────────────────────────────
-# The Tool Invention Prompt
+# System prompt — tuned for Gemini Robotics ER
 # ──────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are ForgeBot, an autonomous robot agent that invents tools and skills to accomplish tasks.
+You are ForgeBot, an autonomous robot agent with vision. You control a Franka Panda
+robot arm in a MuJoCo physics simulation. You receive a live image of the scene with
+every message so you can SEE the current state of the world.
 
-You control a robot arm in a MuJoCo physics simulation.
-You work step-by-step: each response is ONE action. After each action completes,
-you see the result and decide the NEXT action. When the task is fully done, use "done".
+You work step-by-step: each response is ONE action. After each action you will
+receive an updated scene image and the action result, then decide the NEXT action.
 
 {tool_descriptions}
 {skill_descriptions}
 
 ════════════════════════════════════════
+SCENE & COORDINATE SYSTEM
+════════════════════════════════════════
+  • The image shows a top-down-ish view of the table and robot.
+  • Coordinate frame: X forward/back, Y left/right, Z up/down.
+  • The table surface is at roughly Z ≈ 0.02.
+  • Cubes are ~0.04 m on each side (size [0.02, 0.02, 0.02] half-extents).
+  • ALWAYS call get_all_objects() first to get exact positions — do NOT guess
+    coordinates from the image alone.
+
+════════════════════════════════════════
+MANIPULATION STRATEGY
+════════════════════════════════════════
+  For pick-and-place:
+    1. get_all_objects() — get names, positions, colors
+    2. grasp(body_name)  — grasp the target object (verifies lift)
+    3. place_at(x, y, z) — place at target WITH approach-from-above
+       • For stacking: z = target_top_z + half_cube_height + small_gap (~0.03)
+       • place_at handles the approach, release, and retract automatically
+
+  For moving without releasing:
+    1. move_to(body_name, x, y, z) — pure IK move, does NOT open gripper
+    2. set_gripper(open) — explicit gripper control
+
+  IMPORTANT:
+    • grasp() is preferred over pick_up() — it verifies the object lifted.
+    • place_at() approaches from above, releases, and retracts. Use it for all
+      placement tasks.
+    • ALWAYS verify success after each action before proceeding.
+    • If grasp fails, try again — the object may have shifted.
+
+════════════════════════════════════════
 CAPABILITY HIERARCHY
 ════════════════════════════════════════
   Primitives  →  Tools  →  Skills
-  • Primitives  Built-in robot actions. Use them inside tools.
+  • Primitives  Built-in robot actions. Use them directly or inside tools.
   • Tools       Atomic async functions you invent. One tool = one focused job.
-                They compose primitives (and other tools).
-  • Skills      High-level multi-step strategies you invent. A skill
-                orchestrates several tools/primitives to accomplish a complex
-                task. Skills can create new tools as part of their setup.
+  • Skills      High-level multi-step strategies you invent.
 
 ════════════════════════════════════════
-YOUR DECISION PROCESS
+YOUR DECISION PROCESS (use the image!)
 ════════════════════════════════════════
-  1. If the task is fully accomplished            → action: done
-  2. If an existing SKILL covers the next step    → action: use_skill
-  3. If a single existing TOOL covers the step    → action: execute
-  4. If you need a new single atomic capability   → action: invent
-  5. If the step is multi-step / complex          → action: create_skill
-  6. If the task needs a PHYSICAL tool design      → action: evolve  (mode: geometry)
-     (robot needs a custom tool shape to reach/push/scoop/hook objects)
-  7. If previous attempts keep failing             → action: evolve  (mode: code)
-     (population search to find a working implementation)
+  1. LOOK at the image — what do you see? Where are objects?
+  2. If the task is fully accomplished            → action: done
+  3. If an existing TOOL covers the next step     → action: execute
+  4. If an existing SKILL covers the next step    → action: use_skill
+  5. If you need a new single atomic capability   → action: invent
+  6. If the step is multi-step / complex          → action: create_skill
+  7. If the task needs a PHYSICAL tool design     → action: evolve (mode: geometry)
+  8. If previous attempts keep failing            → action: evolve (mode: code)
 
 ════════════════════════════════════════
-IMPORTANT DATA FORMAT NOTES
-═════════════════════════════════════════
-  • get_all_objects() returns {{"success": bool, "objects": [list of dicts]}}
-    Each object dict has: {{"name": str, "position": [x,y,z], "color": str, "size": [x,y,z]}}
-    The "color" field is a human-readable string like "red", "cyan", "green", "yellow".
-    Objects is a LIST, not a dict. Iterate with: for obj in objects_data["objects"]:
-  • get_body_color() returns {{"success": bool, "color": str}} where color is a string.
-  • pick_up(body_name) takes the object's NAME (e.g. "cube0"), NOT a description.
-    Use get_all_objects() first to find the correct name.
-  • grasp(body_name) is preferred for "pick up" tasks. It uses the same animated sequence as pick_up
-    but ONLY picks up and holds the object (no tray placement). It also verifies the grasp succeeded.
-    Use get_all_objects() first to find the correct name.
-  • Always check the "success" field before using results.
+DATA FORMAT NOTES
+════════════════════════════════════════
+  • get_all_objects() → {{"success": bool, "objects": [list]}}
+    Each: {{"name": str, "position": [x,y,z], "color": str, "size": [x,y,z]}}
+  • grasp(body_name) → {{"success": bool, "holding": str|null}}
+    Pass the object NAME (e.g. "cube0"), NOT a description.
+  • place_at(x, y, z) → {{"success": bool, "placed_at": [x,y,z]}}
+  • Always check "success" before using results.
 
 ════════════════════════════════════════
 WRITING CODE RULES
 ════════════════════════════════════════
   • All functions MUST be `async def`.
-  • Available in every execution namespace (no imports needed):
+  • Available in namespace (no imports needed):
       Primitives : move_to, set_gripper, get_body_position, get_body_color,
                    get_all_objects, pick_up, grasp, place_at, step_sim
-      Invented tools  : all previously registered tools by name
-      Invented skills : all previously registered skills by name
-      Stdlib : asyncio, json
-  • Always return a dict with at least {{"success": bool}}.
+      Invented   : all registered tools/skills by name
+      Stdlib     : asyncio, json
+  • Always return {{"success": bool, ...}}.
   • Keep tools focused (one job). Skills may be longer.
-  • Do NOT put extra keys like "tool_name" in then_execute_with —
-    only pass the actual function arguments.
 
 ════════════════════════════════════════
 RESPONSE FORMAT  (strict JSON, no markdown)
@@ -131,9 +153,17 @@ RESPONSE FORMAT  (strict JSON, no markdown)
 
 ── task is fully done ─────────────────
 {{
-    "thought": "The task is complete because ...",
+    "thought": "Looking at the scene, the task is complete because ...",
     "action": "done",
     "summary": "Brief summary of what was accomplished"
+}}
+
+── execute a single existing tool ─────
+{{
+    "thought": "I can see [object] at [position]. I need to ...",
+    "action": "execute",
+    "tool_name": "existing_tool_name",
+    "tool_args": {{}}
 }}
 
 ── use an existing skill ──────────────
@@ -144,17 +174,9 @@ RESPONSE FORMAT  (strict JSON, no markdown)
     "skill_args": {{}}
 }}
 
-── execute a single existing tool ─────
-{{
-    "thought": "...",
-    "action": "execute",
-    "tool_name": "existing_tool_name",
-    "tool_args": {{}}
-}}
-
 ── invent one new atomic tool ─────────
 {{
-    "thought": "...",
+    "thought": "I need a tool that ...",
     "action": "invent",
     "tool_name": "new_tool_name",
     "tool_description": "What it does",
@@ -199,9 +221,9 @@ RESPONSE FORMAT  (strict JSON, no markdown)
 # ──────────────────────────────────────────
 
 class ForgeBotAgent:
-    """The main agent that plans, invents, and executes — with self-healing retry."""
+    """The main agent that plans, invents, and executes — with vision."""
 
-    def __init__(self, model: str = "gemini-2.5-flash"):
+    def __init__(self, model: str = "gemini-robotics-er-1.5-preview"):
         self.model = model
         self._event_callback = None
         init_primitives()
@@ -234,36 +256,53 @@ class ForgeBotAgent:
             await self._event_callback(event_type, data)
 
     # ──────────────────────────────────────────
+    # Scene image capture
+    # ──────────────────────────────────────────
+
+    async def _capture_image(self) -> Optional[bytes]:
+        """Capture scene image from sim; returns raw JPEG bytes or None."""
+        try:
+            result = await capture_scene_image()
+            if result.get("success") and result.get("image_base64"):
+                return base64.b64decode(result["image_base64"])
+        except Exception as e:
+            print(f"[forgebot] Image capture failed: {e}")
+        return None
+
+    # ──────────────────────────────────────────
     # Main entry point — multi-step agentic loop
     # ──────────────────────────────────────────
 
-    MAX_STEPS = 10       # max actions per task (prevents infinite loops)
-    MAX_RETRIES = 3      # max retries per failed step
+    MAX_STEPS = 10
+    MAX_RETRIES = 3
 
     async def handle_task(self, user_message: str) -> dict:
         """
-        Multi-step agentic loop:
-          1. LLM picks an action
-          2. Execute it
-          3. If fail → retry with error context (up to MAX_RETRIES)
-          4. If succeed → feed result back, LLM picks next action
-          5. LLM says "done" → persist artifacts, return
+        Multi-step agentic loop with vision:
+          1. Capture scene image
+          2. LLM sees image + text, picks an action
+          3. Execute it
+          4. If fail → capture new image, retry with error context
+          5. If succeed → loop back with updated image
+          6. LLM says "done" → persist artifacts, return
         """
         await self._emit("thinking", {"message": f"Analyzing task: {user_message}"})
 
-        # Conversation history for multi-step context
         history: list[dict] = []
         retries_this_step = 0
 
         for step in range(1, self.MAX_STEPS + 1):
-            # Build prompt with current capabilities
             system = SYSTEM_PROMPT.format(
                 tool_descriptions=registry.get_tool_descriptions(),
                 skill_descriptions=skill_registry.get_skill_descriptions(),
             )
 
-            # Build conversation contents
-            contents = self._build_contents(user_message, history)
+            # Capture current scene image
+            await self._emit("thinking", {"message": "Capturing scene image..."})
+            image_bytes = await self._capture_image()
+
+            # Build multimodal contents: [image, text]
+            contents = self._build_contents(user_message, history, image_bytes)
 
             label = "Planning approach..." if step == 1 and retries_this_step == 0 else f"Step {step}..."
             if retries_this_step > 0:
@@ -280,6 +319,7 @@ class ForgeBotAgent:
                 )
             except Exception as e:
                 return {"error": f"LLM call failed: {e}", "success": False}
+
             try:
                 plan = json.loads(raw)
             except json.JSONDecodeError:
@@ -297,24 +337,20 @@ class ForgeBotAgent:
                 "step": step,
             })
 
-            # ── "done" action — task is complete ──
+            # ── "done" ──
             if action == "done":
                 await self._emit("done", {
                     "summary": plan.get("summary", ""),
                     "message": "Task complete",
                 })
-                # Persist all invented artifacts from this session
                 self._persist_all_invented()
                 return {"success": True, "summary": plan.get("summary", "")}
 
-            # ── Execute the action ──
+            # ── Execute ──
             result = await self._route_action(action, plan)
-
-            # Extract error from nested result
             error_msg = self._extract_error(result)
 
             if error_msg:
-                # Failed step
                 retries_this_step += 1
                 await self._emit("retry", {
                     "attempt": retries_this_step,
@@ -333,9 +369,8 @@ class ForgeBotAgent:
                 })
 
                 if retries_this_step >= self.MAX_RETRIES:
-                    # Auto-escalate to evolution if we keep failing
                     await self._emit("auto_escalate", {
-                        "message": f"Retries exhausted — escalating to evolution mode",
+                        "message": "Retries exhausted — escalating to evolution mode",
                         "error": error_msg,
                     })
                     evolve_result = await self._handle_evolve({
@@ -353,9 +388,7 @@ class ForgeBotAgent:
                         continue
                     return {"success": False, "error": f"Evolution also failed: {evolve_result.get('error', 'unknown')}"}
             else:
-                # Successful step — add to history, reset retries
                 retries_this_step = 0
-                # Persist any newly invented artifacts immediately
                 self._persist_new_artifacts(action, plan)
 
                 result_summary = json.dumps(result, default=str)[:500]
@@ -368,35 +401,46 @@ class ForgeBotAgent:
 
         return {"success": False, "error": f"Reached max steps ({self.MAX_STEPS}) without completing task"}
 
-    def _build_contents(self, original_task: str, history: list[dict]) -> str:
-        """Build the LLM prompt including step history."""
-        parts = [f"TASK: {original_task}"]
+    def _build_contents(self, original_task: str, history: list[dict], image_bytes: Optional[bytes] = None) -> list:
+        """Build multimodal LLM contents: [scene_image, text_prompt]."""
+        parts = []
 
+        # Scene image (if available)
+        if image_bytes:
+            parts.append(
+                types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+            )
+
+        # Text prompt
+        text_parts = [f"TASK: {original_task}"]
         for entry in history:
             role = entry["role"]
             if role == "step_result":
-                parts.append(f"\n--- Step completed: {entry['action']} ({entry['name']}) ---")
-                parts.append(f"Result: {entry['result']}")
+                text_parts.append(f"\n--- Step completed: {entry['action']} ({entry['name']}) ---")
+                text_parts.append(f"Result: {entry['result']}")
             elif role == "step_error":
-                parts.append(f"\n--- Step FAILED: {entry['action']} ({entry['name']}) ---")
-                parts.append(f"Error: {entry['error']}")
+                text_parts.append(f"\n--- Step FAILED: {entry['action']} ({entry['name']}) ---")
+                text_parts.append(f"Error: {entry['error']}")
                 if entry.get("source_code"):
-                    parts.append(f"Failed source code:\n{entry['source_code']}")
-                parts.append("Fix the issue and try a different approach.")
+                    text_parts.append(f"Failed source code:\n{entry['source_code']}")
+                text_parts.append("Look at the updated image. Fix the issue and try a different approach.")
             elif role == "error":
-                parts.append(f"\nError: {entry['content']}")
+                text_parts.append(f"\nError: {entry['content']}")
 
         if history:
-            parts.append("\nWhat is the next action? If the task is fully done, use action: done.")
+            text_parts.append(
+                "\nLook at the scene image above. What is the current state? "
+                "What is the next action? If the task is fully done, use action: done."
+            )
 
-        return "\n".join(parts)
+        parts.append("\n".join(text_parts))
+        return parts
 
     @staticmethod
     def _extract_error(result: dict) -> Optional[str]:
         """Extract error message from a result dict, checking nested levels."""
         if "error" in result:
             return result["error"]
-        # Check nested result (e.g. from _execute_tool wrapping)
         inner = result.get("result", {})
         if isinstance(inner, dict):
             if "error" in inner:
@@ -404,7 +448,7 @@ class ForgeBotAgent:
             if inner.get("success") is False:
                 return inner.get("error", f"Tool returned success=false: {json.dumps(inner)[:200]}")
         if result.get("success") is False:
-            return f"Action returned success=false"
+            return "Action returned success=false"
         return None
 
     async def _route_action(self, action: str, plan: dict) -> dict:
@@ -466,14 +510,12 @@ class ForgeBotAgent:
             "composed_from": plan.get("composed_from", []),
         })
 
-        # Compile the invented tool
         try:
             fn = await self._compile_tool(tool_name, source_code)
         except Exception as e:
             await self._emit("error", {"message": f"Failed to compile tool: {e}"})
             return {"error": f"Compilation failed: {e}", "source_code": source_code}
 
-        # Register it
         tool = registry.register_invented_tool(
             name=tool_name,
             description=plan.get("tool_description", ""),
@@ -488,7 +530,6 @@ class ForgeBotAgent:
             "message": f"Invented new tool: {tool_name}",
         })
 
-        # Now execute it
         exec_args = plan.get("then_execute_with", {})
         return await self._execute_tool(tool_name, exec_args)
 
@@ -506,7 +547,6 @@ class ForgeBotAgent:
                 mode="code",
                 compile_fn=self._compile_tool,
             )
-            # Register the winning code tool
             if result.get("success"):
                 candidate = result["candidate"]
                 name = candidate.get("tool_name", "evolved_tool")
@@ -531,7 +571,6 @@ class ForgeBotAgent:
             return result
 
         elif mode == "geometry":
-            # For geometry mode, we need the sim eval function
             from agent.primitives import send_command
 
             async def sim_eval_fn(mjcf: str, waypoints: list) -> dict:
@@ -577,18 +616,11 @@ class ForgeBotAgent:
         return await self._execute_skill(skill_name, skill_args)
 
     async def _handle_create_skill(self, plan: dict) -> dict:
-        """
-        Create a new skill:
-          1. Optionally invent supporting tools listed in plan["new_tools"].
-          2. Compile the skill function.
-          3. Register the skill.
-          4. Execute it.
-        """
+        """Create a new skill with optional supporting tools, then execute it."""
         skill_name = plan["skill_name"]
         skill_source = plan["skill_source_code"]
         tools_created: list[str] = []
 
-        # Step 1 — invent any supporting tools
         for tool_spec in plan.get("new_tools", []):
             tool_name = tool_spec["tool_name"]
             await self._emit("inventing", {
@@ -618,7 +650,6 @@ class ForgeBotAgent:
                 "message": f"Created supporting tool: {tool_name}",
             })
 
-        # Step 2 — compile the skill itself
         await self._emit("creating_skill", {
             "skill_name": skill_name,
             "description": plan.get("skill_description", ""),
@@ -632,7 +663,6 @@ class ForgeBotAgent:
             await self._emit("error", {"message": f"Failed to compile skill '{skill_name}': {e}"})
             return {"error": f"Skill compilation failed: {e}", "skill_name": skill_name}
 
-        # Step 3 — register the skill
         skill = skill_registry.register_skill(
             name=skill_name,
             description=plan.get("skill_description", ""),
@@ -646,7 +676,6 @@ class ForgeBotAgent:
             "message": f"Created new skill: {skill_name}",
         })
 
-        # Step 4 — execute
         exec_args = plan.get("then_execute_with", {})
         return await self._execute_skill(skill_name, exec_args)
 
@@ -687,19 +716,12 @@ class ForgeBotAgent:
     # ──────────────────────────────────────────
 
     def _build_execution_namespace(self, exclude_name: str = "") -> dict:
-        """
-        Build the shared execution namespace that every compiled function can use:
-          - stdlib helpers (asyncio, json)
-          - all primitives
-          - all registered tools (invented)
-          - all registered skills
-        """
+        """Build the shared namespace for compiled tools/skills."""
         from agent import primitives
 
         namespace: dict = {
             "asyncio": asyncio,
             "json": json,
-            # primitives
             "move_to": primitives.move_to,
             "set_gripper": primitives.set_gripper,
             "get_body_position": primitives.get_body_position,
@@ -710,11 +732,9 @@ class ForgeBotAgent:
             "place_at": primitives.place_at,
             "step_sim": primitives.step_sim,
         }
-        # inject invented tools
         for tool in registry.get_invented_tools():
             if tool.fn and tool.name != exclude_name:
                 namespace[tool.name] = tool.fn
-        # inject skills
         for skill in skill_registry.get_all_skills():
             if skill.fn and skill.name != exclude_name:
                 namespace[skill.name] = skill.fn
@@ -736,7 +756,6 @@ class ForgeBotAgent:
             raise ValueError(f"Source code did not define function '{name}'")
         return namespace[name]
 
-    # Keys that are plan metadata, not function arguments
     _META_KEYS = frozenset({
         "tool_name", "tool_args", "skill_name", "skill_args",
         "action", "thought", "steps", "then_execute_with",
@@ -754,7 +773,6 @@ class ForgeBotAgent:
         if not tool.fn:
             return {"error": f"Tool '{tool_name}' has no executable function"}
 
-        # Strip plan metadata keys that the LLM may leak into execution args
         clean_args = {k: v for k, v in args.items() if k not in self._META_KEYS}
 
         await self._emit("executing", {

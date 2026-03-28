@@ -13,7 +13,8 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', 'sim', '.env'))
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', 'sim', '.env.local'))
 load_dotenv()
 
 # Errors that trigger fallback
@@ -39,12 +40,12 @@ def _get_gemini_client() -> Optional[genai.Client]:
 
 async def _call_gemini(
     model: str,
-    contents: str,
+    contents,
     system_instruction: str = "",
     temperature: float = 0.2,
     response_json: bool = False,
 ) -> str:
-    """Call Google Gemini."""
+    """Call Google Gemini.  `contents` may be a plain str or a list of Parts."""
     gemini = _get_gemini_client()
     if not gemini:
         raise RuntimeError("GEMINI_API_KEY not set.")
@@ -76,9 +77,18 @@ def _get_zai_key() -> Optional[str]:
     return os.environ.get("ZAI_API_KEY") or os.environ.get("Z_AI_API_KEY")
 
 
+def _extract_text(contents) -> str:
+    """Extract plain text from contents (may be str or list of Parts)."""
+    if isinstance(contents, str):
+        return contents
+    if isinstance(contents, list):
+        return "\n".join(str(p) for p in contents if isinstance(p, str))
+    return str(contents)
+
+
 async def _call_zai(
     model: str,
-    contents: str,
+    contents,
     system_instruction: str = "",
     temperature: float = 0.2,
     response_json: bool = False,
@@ -88,10 +98,11 @@ async def _call_zai(
     if not api_key:
         raise RuntimeError("ZAI_API_KEY not set.")
     zai_model = ZAI_MODEL_MAP.get(model, ZAI_DEFAULT_MODEL)
+    text = _extract_text(contents)
     messages = []
     if system_instruction:
         messages.append({"role": "system", "content": system_instruction})
-    messages.append({"role": "user", "content": contents})
+    messages.append({"role": "user", "content": text})
     payload = {"model": zai_model, "messages": messages, "temperature": temperature}
     if response_json:
         payload["response_format"] = {"type": "json_object"}
@@ -125,7 +136,7 @@ def _get_openai_key() -> Optional[str]:
 
 async def _call_openai(
     model: str,
-    contents: str,
+    contents,
     system_instruction: str = "",
     temperature: float = 0.2,
     response_json: bool = False,
@@ -135,10 +146,11 @@ async def _call_openai(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set.")
     oai_model = OPENAI_MODEL_MAP.get(model, OPENAI_DEFAULT_MODEL)
+    text = _extract_text(contents)
     messages = []
     if system_instruction:
         messages.append({"role": "system", "content": system_instruction})
-    messages.append({"role": "user", "content": contents})
+    messages.append({"role": "user", "content": text})
     payload = {"model": oai_model, "messages": messages, "temperature": temperature}
     if response_json:
         payload["response_format"] = {"type": "json_object"}
@@ -157,6 +169,9 @@ async def _call_openai(
 # Unified generate with fallback
 # ──────────────────────────────────────────
 
+# Models that must always go through the Gemini API (no fallback to other providers)
+_GEMINI_ONLY_MODELS = {"gemini-robotics-er-1.5-preview"}
+
 # (name, key_checker, caller)
 _PROVIDERS = [
     ("Z AI", _get_zai_key, _call_zai),
@@ -167,7 +182,7 @@ _PROVIDERS = [
 
 async def generate(
     model: str,
-    contents: str,
+    contents,
     system_instruction: str = "",
     temperature: float = 0.2,
     response_json: bool = True,
@@ -176,6 +191,14 @@ async def generate(
     Generate text from LLM with automatic fallback.
     Tries Z AI → OpenAI → Gemini. Falls back on 429/500/503.
     """
+    # Gemini-only models skip the fallback chain and go directly to Gemini.
+    if model in _GEMINI_ONLY_MODELS:
+        return await _call_gemini(
+            model=model, contents=contents,
+            system_instruction=system_instruction,
+            temperature=temperature, response_json=response_json,
+        )
+
     last_error = None
     for name, has_key, caller in _PROVIDERS:
         if not has_key():

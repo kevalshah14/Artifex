@@ -209,6 +209,15 @@ async def step_sim(n_steps: int = 100) -> dict:
     })
 
 
+async def capture_scene_image() -> dict:
+    """Capture a JPEG screenshot of the current sim scene.
+
+    Returns:
+        dict with 'image_base64' (base64-encoded JPEG), 'mime_type', and 'success'.
+    """
+    return await send_command({"action": "capture_image"})
+
+
 # Registry of all primitives for the agent to reference
 PRIMITIVES = {
     "move_to": {
