@@ -10,6 +10,7 @@ import { Type } from '@google/genai';
 import * as THREE from 'three';
 import { MujocoSim } from './MujocoSim';
 import { getName } from './utils/StringUtils';
+import { getVLMgineerStatus, runVLMgineer } from './vlmgineer';
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
@@ -173,6 +174,42 @@ export const robotFunctionDeclarations = [
             properties: {},
         },
     },
+    {
+        name: 'run_vlmgineer',
+        description:
+            'Runs an iterative VLMGINEER search loop to design a custom tool and action sequence for a manipulation task. It evolves candidates over multiple iterations and returns the best discovered design.',
+        parameters: {
+            type: Type.OBJECT,
+            properties: {
+                task: {
+                    type: Type.STRING,
+                    description: 'Natural-language task to solve, e.g. "move red cube to the left side".',
+                },
+                max_iterations: {
+                    type: Type.NUMBER,
+                    description: 'Optional number of evolution rounds (1-8).',
+                },
+                candidates_per_iteration: {
+                    type: Type.NUMBER,
+                    description: 'Optional number of candidates evaluated each round (2-10).',
+                },
+                solve_threshold: {
+                    type: Type.NUMBER,
+                    description: 'Optional success threshold in [0,1] used for early stopping when the task is considered solved.',
+                },
+            },
+            required: ['task'],
+        },
+    },
+    {
+        name: 'get_vlmgineer_status',
+        description:
+            'Returns recent VLMGINEER runs and their best fitness, including the latest discovered tool design summary.',
+        parameters: {
+            type: Type.OBJECT,
+            properties: {},
+        },
+    },
 ];
 
 // ─── Executor ────────────────────────────────────────────────────────
@@ -281,6 +318,23 @@ export async function executeRobotTool(
             sim.reset();
             await waitFrames(30);
             return { success: true, message: 'Simulation reset' };
+        }
+
+        case 'run_vlmgineer': {
+            const task = (args.task as string | undefined)?.trim();
+            if (!task) {
+                return { success: false, error: 'Missing required field: task' };
+            }
+            const runResult = await runVLMgineer(sim, task, {
+                maxIterations: args.max_iterations as number | undefined,
+                candidatesPerIteration: args.candidates_per_iteration as number | undefined,
+                solveThreshold: args.solve_threshold as number | undefined,
+            });
+            return { ...runResult };
+        }
+
+        case 'get_vlmgineer_status': {
+            return { success: true, ...getVLMgineerStatus() };
         }
 
         default:

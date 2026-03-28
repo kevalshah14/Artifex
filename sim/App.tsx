@@ -4,7 +4,7 @@
 */
 
 import { GoogleGenAI } from "@google/genai";
-import { AlertCircle, Loader2, X } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 import loadMujoco from 'mujoco-js';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -15,9 +15,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { Header } from './components/Header';
 import { RobotSelector } from './components/RobotSelector';
 import { SimulationHUD } from './components/SimulationHUD';
-import { Toolbar } from './components/Toolbar';
 import { ToolRegistry } from './components/ToolRegistry';
-import { UnifiedSidebar } from './components/UnifiedSidebar';
 import { DetectedItem, DetectType, LogEntry, MujocoModule } from './types';
 
 /**
@@ -100,8 +98,8 @@ export function App() {
   const [mujocoReady, setMujocoReady] = useState(false);
 
   const [isPaused, setIsPaused] = useState(false);
-  // Initialize sidebar based on screen width (hidden on mobile by default)
-  const [showSidebar, setShowSidebar] = useState(() => window.innerWidth >= 660);
+  // Demo UI: no left overlay panel.
+  const [showSidebar] = useState(false);
 
   const [erLoading, setErLoading] = useState(false);
   const [logs, setLogs] = useState<Array<LogEntry>>([]);
@@ -115,7 +113,6 @@ export function App() {
 
   const [gizmoStats, setGizmoStats] = useState<{pos: string, rot: string} | null>(null);
   const [fps, setFps] = useState(0);
-  const [showToolRegistry, setShowToolRegistry] = useState(false);
 
   // Deriving activeLog directly from the latest logs state ensures UI reactivity
   const activeLog = expandedLogId ? logs.find(l => l.id === expandedLogId) : null;
@@ -438,11 +435,7 @@ export function App() {
   return (
     <div className="h-screen flex flex-col bg-zinc-950 text-zinc-50 font-sans overflow-hidden">
       {/* Header */}
-      <Header
-        modelName="gemini-2.5-flash"
-        showToolRegistry={showToolRegistry}
-        onToggleToolRegistry={() => setShowToolRegistry(!showToolRegistry)}
-      />
+      <Header modelName="gemini-2.5-flash" />
 
       {/* Main content area */}
       <div className="flex flex-1 min-h-0">
@@ -456,33 +449,6 @@ export function App() {
 
           {/* Robot Info Overlay */}
           {!loadError && <RobotSelector gizmoStats={gizmoStats} />}
-
-          {/* UnifiedSidebar as overlay inside viewport */}
-          {!isLoading && !loadError && (
-            <UnifiedSidebar
-              isOpen={showSidebar}
-              onClose={() => setShowSidebar(false)}
-              onSend={handleErSend}
-              onPickup={handlePickup}
-              isLoading={erLoading}
-              hasDetectedItems={detectedCount > 0}
-              logs={logs}
-              onOpenLog={(log) => setExpandedLogId(log.id)}
-              isPickingUp={isPickingUp}
-              playbackSpeed={playbackSpeed}
-            />
-          )}
-
-          {/* Toolbar */}
-          {!isLoading && !loadError && (
-            <Toolbar
-              isPaused={isPaused}
-              togglePause={() => setIsPaused(simRef.current?.togglePause() ?? false)}
-              onReset={handleReset}
-              showSidebar={showSidebar}
-              toggleSidebar={() => setShowSidebar(!showSidebar)}
-            />
-          )}
 
           {/* Loading Screen */}
           {isLoading && (
@@ -546,55 +512,6 @@ export function App() {
         </div>
       </div>
 
-      {/* Expanded View Modal - Overlay everything */}
-      {activeLog && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center min-[660px]:p-10 bg-zinc-950/60 backdrop-blur-xl animate-in fade-in" onClick={() => setExpandedLogId(null)}>
-          <div className="glass-panel overflow-hidden flex flex-col shadow-2xl transition-colors fixed top-4 bottom-4 left-4 right-4 rounded-[2.5rem] min-[660px]:relative min-[660px]:inset-auto min-[660px]:w-full min-[660px]:max-w-4xl min-[660px]:max-h-[85vh] bg-zinc-900 border border-zinc-800 text-zinc-100" onClick={e => e.stopPropagation()}>
-            <div className="p-6 border-b flex justify-between items-center shrink-0 border-zinc-800 bg-zinc-900/50">
-              <div>
-                <h3 className="text-xl font-bold">API Call</h3>
-                <p className="text-xs font-medium text-zinc-400">{activeLog.timestamp.toLocaleString()}</p>
-              </div>
-              <button onClick={() => setExpandedLogId(null)} className="w-10 h-10 flex items-center justify-center rounded-full shadow-sm border transition-colors bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="flex-1 flex max-[659px]:flex-col max-[659px]:overflow-y-auto custom-scrollbar min-[660px]:flex-row min-[660px]:overflow-hidden">
-              <div className="flex items-center justify-center border-b min-[660px]:border-b-0 min-[660px]:border-r min-[660px]:flex-1 min-[660px]:p-6 min-[660px]:overflow-hidden max-[659px]:shrink-0 max-[659px]:p-6 bg-zinc-950/50 border-zinc-800">
-                <div className="relative rounded-2xl overflow-hidden shadow-lg border-2 flex items-center justify-center min-[660px]:w-auto min-[660px]:h-auto min-[660px]:max-w-full min-[660px]:max-h-full max-[659px]:w-full max-[659px]:h-auto border-zinc-800 bg-black/20">
-                  <img src={activeLog.imageSrc} className="block w-full h-auto min-[660px]:max-w-full min-[660px]:max-h-full" alt="Detailed log" />
-                  <LogOverlay log={activeLog} />
-                </div>
-              </div>
-              <div className="min-[660px]:w-[320px] p-6 flex flex-col gap-5 min-[660px]:overflow-y-auto min-[660px]:custom-scrollbar bg-zinc-900/50">
-                <div className="space-y-1">
-                  <h4 className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">User Prompt</h4>
-                  <p className="text-sm font-bold leading-tight">{activeLog.prompt}</p>
-                </div>
-                <div className="space-y-1">
-                  <h4 className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Full Prompt</h4>
-                  <p className="text-[10px] font-mono p-3 r
-                                ounded-xl leading-relaxed border whitespace-pre-wrap bg-zinc-950 border-zinc-800 text-zinc-400">{activeLog.fullPrompt}</p>
-                </div>
-                <div className="space-y-3 flex flex-col min-[660px]:flex-1 min-[660px]:min-h-0">
-                  <h4 className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">API Call Results</h4>
-                  <div className="p-3 rounded-xl font-mono text-[10px] border overflow-y-auto shadow-inner min-[660px]:flex-1 max-[659px]:h-96 bg-zinc-950 border-zinc-800 text-violet-400">
-                    {activeLog.result === null ? (
-                      <div className="h-full flex flex-col items-center justify-center gap-3 text-violet-400 animate-pulse">
-                        <Loader2 className="w-6 h-6 animate-spin" />
-                        <span className="font-sans font-bold text-[8px] uppercase tracking-widest">Processing...</span>
-                      </div>
-                    ) : (
-                      <pre className="whitespace-pre-wrap break-all leading-relaxed">{JSON.stringify(activeLog.result, null, 2)}</pre>
-                    )}
-                  </div>
-                </div>
-                <div className="min-[660px]:hidden h-8 shrink-0" />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { Wrench, Sparkles, ChevronDown } from "lucide-react";
+import { Wrench, Sparkles, ChevronDown, History } from "lucide-react";
+import { useInventedToolsStore } from "../inventedToolsStore";
+import { useToolCallStore } from "../toolCallStore";
 
 interface Tool {
   name: string;
   description: string;
   code: string;
+  badge?: string;
 }
 
 const PRIMITIVE_TOOLS: Tool[] = [
@@ -36,6 +39,7 @@ const PRIMITIVE_TOOLS: Tool[] = [
 ];
 
 type TabType = "primitives" | "invented";
+type TabTypeExtended = TabType | "calls";
 
 function ToolCard({ tool }: { tool: Tool }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -51,7 +55,7 @@ function ToolCard({ tool }: { tool: Tool }) {
             {tool.name}
           </span>
           <span className="text-[10px] bg-violet-500/10 text-violet-400/70 px-1.5 py-px rounded font-mono shrink-0 border border-violet-500/10">
-            PRIMITIVE
+            {tool.badge ?? "PRIMITIVE"}
           </span>
         </div>
         <ChevronDown
@@ -73,9 +77,25 @@ interface ToolRegistryProps {
 }
 
 export function ToolRegistry({ className = "" }: ToolRegistryProps) {
-  const [activeTab, setActiveTab] = useState<TabType>("primitives");
+  const [activeTab, setActiveTab] = useState<TabTypeExtended>("calls");
+  const inventedTools = useInventedToolsStore((s) => s.inventedTools);
+  const calls = useToolCallStore((s) => s.calls);
 
-  const tools = activeTab === "primitives" ? PRIMITIVE_TOOLS : [];
+  const tools = activeTab === "primitives"
+    ? PRIMITIVE_TOOLS
+    : activeTab === "invented"
+      ? inventedTools.map((tool) => ({
+          name: tool.name,
+          description: `${tool.description} (fitness ${tool.bestFitness.toFixed(3)})`,
+          code: `${tool.toolMjcf}\n\n# waypoints\n${JSON.stringify(tool.waypoints, null, 2)}`,
+          badge: "INVENTED",
+        }))
+      : calls.map((call) => ({
+          name: call.name,
+          description: `${call.status.toUpperCase()} • ${new Date(call.startedAt).toLocaleTimeString()}`,
+          code: `args:\n${JSON.stringify(call.args, null, 2)}\n\nresult:\n${JSON.stringify(call.result ?? {}, null, 2)}`,
+          badge: "CALL",
+        }));
 
   return (
     <div className={`flex flex-col h-full ${className}`}>
@@ -116,6 +136,17 @@ export function ToolRegistry({ className = "" }: ToolRegistryProps) {
           <Sparkles className="w-3 h-3" />
           Invented
         </button>
+        <button
+          onClick={() => setActiveTab("calls")}
+          className={`flex items-center gap-1.5 px-2 py-1.5 text-xs font-mono transition-colors border-b-2 -mb-px ${
+            activeTab === "calls"
+              ? "border-violet-400 text-violet-300"
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          <History className="w-3 h-3" />
+          Live Calls
+        </button>
       </div>
 
       {/* Tool cards */}
@@ -125,8 +156,12 @@ export function ToolRegistry({ className = "" }: ToolRegistryProps) {
             <div className="w-10 h-10 rounded-xl bg-zinc-800/50 border border-zinc-800 flex items-center justify-center mb-3">
               <Sparkles className="w-4 h-4 text-zinc-600" />
             </div>
-            <p className="text-xs font-mono text-zinc-600">No invented tools yet</p>
-            <p className="text-[10px] text-zinc-700 mt-1">Ask Artifex to create one</p>
+            <p className="text-xs font-mono text-zinc-600">
+              {activeTab === "calls" ? "No tool calls yet" : "No invented tools yet"}
+            </p>
+            <p className="text-[10px] text-zinc-700 mt-1">
+              {activeTab === "calls" ? "Run an action in chat to see live calls" : "Ask Artifex to create one"}
+            </p>
           </div>
         ) : (
           tools.map((tool) => <ToolCard key={tool.name} tool={tool} />)

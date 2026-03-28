@@ -34,6 +34,8 @@ export class MujocoSim {
     paused = false;
     gripperActuatorId = -1;
     speedMultiplier = 1;
+    currentSceneFile = 'scene.xml';
+    private isStackingScene = false;
     
     private userIkEnabled = false; 
     private firstIkEnable = true; // Track first enable to enforce default rotation
@@ -70,45 +72,63 @@ export class MujocoSim {
     async init(robotId = 'franka_emika_panda', sceneFile = 'scene.xml', onProgress?: (msg: string) => void) {
         const loader = new RobotLoader(this.mujoco);
         const { isDouble, isStacking } = await loader.load(robotId, sceneFile, onProgress);
+        this.currentSceneFile = sceneFile;
+        this.isStackingScene = isStacking;
 
+        this.loadModelFromWorking(sceneFile);
+        this.initializeLoadedModel(isDouble, isStacking);
+        this.startLoop();
+    }
+
+    /**
+     * Reload the currently mounted /working scene after a file mutation
+     * (e.g. VLMGINEER tool injection).
+     */
+    reloadFromWorkingScene(sceneFile = this.currentSceneFile) {
+        this.currentSceneFile = sceneFile;
+        this.loadModelFromWorking(sceneFile);
+        this.initializeLoadedModel(false, this.isStackingScene);
+    }
+
+    private loadModelFromWorking(sceneFile: string) {
+        if (this.mjModel) this.mjModel.delete();
+        if (this.mjData) this.mjData.delete();
+        this.mjModel = null;
+        this.mjData = null;
         try {
             this.mjModel = this.mujoco.MjModel.loadFromXML(`/working/${sceneFile}`);
             this.mjData = new this.mujoco.MjData(this.mjModel);
-        } catch (e: unknown) { 
-            throw new Error(`Failed to load model: ${(e as Error).message}`); 
+        } catch (e: unknown) {
+            throw new Error(`Failed to load model: ${(e as Error).message}`);
+        }
+    }
+
+    private initializeLoadedModel(isDouble: boolean, isStacking: boolean) {
+        if (!this.mjModel || !this.mjData) return;
+        this.ikSys.gripperSiteId = -1;
+        this.gripperActuatorId = -1;
+        for (let i = 0; i < this.mjModel.nsite; i++) {
+            if (getName(this.mjModel, this.mjModel.name_siteadr[i]).includes('tcp')) {
+                this.ikSys.gripperSiteId = i;
+                break;
+            }
+        }
+        for (let i = 0; i < this.mjModel.nu; i++) {
+            if (getName(this.mjModel, this.mjModel.name_actuatoradr[i]).includes('gripper')) {
+                this.gripperActuatorId = i;
+                break;
+            }
         }
 
-        if (this.mjModel) {
-            this.ikSys.gripperSiteId = -1; 
-            this.gripperActuatorId = -1;
-            for (let i = 0; i < this.mjModel.nsite; i++) {
-                 if (getName(this.mjModel, this.mjModel.name_siteadr[i]).includes('tcp')) { 
-                     this.ikSys.gripperSiteId = i; break; 
-                 }
-            }
-            for (let i = 0; i < this.mjModel.nu; i++) {
-                 if (getName(this.mjModel, this.mjModel.name_actuatoradr[i]).includes('gripper')) { 
-                     this.gripperActuatorId = i; break; 
-                 }
-            }
-
-            // Set Initial Pose
-            this.setInitialPose();
-
-            this.mujoco.mj_forward(this.mjModel, this.mjData!);
-            this.renderSys.initScene(this.mjModel);
-            this.ikSys.init(this.mjModel, isDouble);
-            this.ikSys.syncToSite(this.mjData!);
-            
-            this.ikSys.target.quaternion.setFromEuler(new THREE.Euler(Math.PI, 0, 0));
-            this.ikSys.target.position.set(0, 0, 0.45);
-
-            this.firstIkEnable = true;
-            
-            this.sequenceAnimator.init(this.mjModel, isStacking, (addr) => getName(this.mjModel!, addr));
-            
-            this.startLoop();
-        }
+        this.setInitialPose();
+        this.mujoco.mj_forward(this.mjModel, this.mjData);
+        this.renderSys.initScene(this.mjModel);
+        this.ikSys.init(this.mjModel, isDouble);
+        this.ikSys.syncToSite(this.mjData);
+        this.ikSys.target.quaternion.setFromEuler(new THREE.Euler(Math.PI, 0, 0));
+        this.ikSys.target.position.set(0, 0, 0.45);
+        this.firstIkEnable = true;
+        this.sequenceAnimator.init(this.mjModel, isStacking, (addr) => getName(this.mjModel!, addr));
     }
     
     private setInitialPose() {

@@ -2,8 +2,6 @@ import { GoogleGenAI } from "@google/genai";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
-  useAui,
-  Suggestions,
   type ChatModelAdapter,
 } from "@assistant-ui/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,6 +12,7 @@ import {
   robotFunctionDeclarations,
   executeRobotTool,
 } from "../robotTools";
+import { useToolCallStore } from "../toolCallStore";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -26,7 +25,10 @@ const SYSTEM_PROMPT = `You are the AI controller for Artifex, an interactive rob
 2. Use pick_up with the body name to grab an object. This runs the full approach-grasp-lift sequence automatically.
 3. Use place_at to move the arm somewhere and release the held object.
 4. For fine-grained control, use move_to and set_gripper individually.
-5. After completing actions, briefly confirm what you did.
+5. For complex tasks requiring tool invention, call run_vlmgineer(task, max_iterations, candidates_per_iteration, solve_threshold). This performs iterative candidate generation, simulation evaluation, mutation/crossover, and early stopping when solved.
+6. The system learns across runs: previous elite designs for similar tasks are reused as memory seeds.
+7. Call get_vlmgineer_status after a run to inspect best designs, fitness progression, and memory coverage.
+8. After completing actions, briefly confirm what you did and report if solved.
 
 **Coordinate system**: X and Y are the horizontal plane (table surface), Z is up. The table center is roughly (0, 0, 0). Typical cube Z is ~0.02. Safe hover height is Z ≈ 0.15–0.25.
 
@@ -78,6 +80,16 @@ function createAdapter(
         const functionResponseParts: any[] = [];
 
         for (const fc of functionCalls) {
+          const callId = `${fc.id ?? "call"}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const callArgs = ((fc.args as Record<string, unknown>) ?? {});
+          useToolCallStore.getState().addCall({
+            id: callId,
+            name: fc.name,
+            args: callArgs,
+            status: "running",
+            startedAt: new Date().toISOString(),
+          });
+
           // Yield a progress update so the user sees activity
           yield {
             content: [
@@ -94,11 +106,17 @@ function createAdapter(
             result = await executeRobotTool(
               sim,
               fc.name,
-              (fc.args as Record<string, unknown>) ?? {},
+              callArgs,
             );
           } else {
             result = { success: false, error: "Simulation not available" };
           }
+
+          useToolCallStore.getState().updateCall(callId, {
+            result,
+            status: result.success === false ? "error" : "success",
+            finishedAt: new Date().toISOString(),
+          });
 
           functionResponseParts.push({
             functionResponse: {
@@ -138,43 +156,14 @@ export function ChatPanel({ simRef }: ChatPanelProps) {
   const adapter = useMemo(() => createAdapter(simRef), [simRef]);
   const runtime = useLocalRuntime(adapter);
 
-  const aui = useAui({
-    suggestions: Suggestions([
-      {
-        title: "Sort Objects",
-        label: "Sort the red blocks to the left side",
-        prompt: "Sort the red blocks to the left side",
-      },
-      {
-        title: "Stack Objects",
-        label: "Stack all objects by color",
-        prompt: "Stack all objects by color",
-      },
-      {
-        title: "Pick Up",
-        label: "Pick up a red cube",
-        prompt: "Pick up one of the red cubes",
-      },
-      {
-        title: "Scene Understanding",
-        label: "What objects are on the table?",
-        prompt: "What objects are on the table?",
-      },
-    ]),
-  });
-
   return (
-    <AssistantRuntimeProvider aui={aui} runtime={runtime}>
+    <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>
         <div className="flex flex-col h-full w-full bg-zinc-900 text-zinc-100">
           {/* Chat header */}
-          <div className="px-4 py-2.5 border-b border-zinc-800 flex items-center gap-2 shrink-0 bg-zinc-900/80">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-mono font-bold tracking-widest text-zinc-400">
+          <div className="px-3 py-2 border-b border-zinc-800 shrink-0 bg-zinc-900/80">
+            <span className="text-[11px] font-mono font-semibold tracking-wide text-zinc-400">
               CHAT
-            </span>
-            <span className="ml-auto text-[10px] font-mono text-zinc-600">
-              gemini-2.5-flash
             </span>
           </div>
           {/* Thread */}
