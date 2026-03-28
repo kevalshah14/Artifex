@@ -97,13 +97,16 @@ YOUR DECISION PROCESS
 
 ════════════════════════════════════════
 IMPORTANT DATA FORMAT NOTES
-════════════════════════════════════════
+═════════════════════════════════════════
   • get_all_objects() returns {{"success": bool, "objects": [list of dicts]}}
     Each object dict has: {{"name": str, "position": [x,y,z], "color": str, "size": [x,y,z]}}
     The "color" field is a human-readable string like "red", "cyan", "green", "yellow".
     Objects is a LIST, not a dict. Iterate with: for obj in objects_data["objects"]:
   • get_body_color() returns {{"success": bool, "color": str}} where color is a string.
   • pick_up(body_name) takes the object's NAME (e.g. "cube0"), NOT a description.
+    Use get_all_objects() first to find the correct name.
+  • grasp(body_name) is preferred for "pick up" tasks. It uses the same animated sequence as pick_up
+    but ONLY picks up and holds the object (no tray placement). It also verifies the grasp succeeded.
     Use get_all_objects() first to find the correct name.
   • Always check the "success" field before using results.
 
@@ -113,7 +116,7 @@ WRITING CODE RULES
   • All functions MUST be `async def`.
   • Available in every execution namespace (no imports needed):
       Primitives : move_to, set_gripper, get_body_position, get_body_color,
-                   get_all_objects, pick_up, place_at, step_sim
+                   get_all_objects, pick_up, grasp, place_at, step_sim
       Invented tools  : all previously registered tools by name
       Invented skills : all previously registered skills by name
       Stdlib : asyncio, json
@@ -703,6 +706,7 @@ class ForgeBotAgent:
             "get_body_color": primitives.get_body_color,
             "get_all_objects": primitives.get_all_objects,
             "pick_up": primitives.pick_up,
+            "grasp": primitives.grasp,
             "place_at": primitives.place_at,
             "step_sim": primitives.step_sim,
         }

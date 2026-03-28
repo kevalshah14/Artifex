@@ -72,6 +72,26 @@ def handle_command(cmd: dict) -> dict:
                 return {"success": True, "holding": name}
         return {"success": False, "error": f"Object '{name}' not found"}
 
+    elif action == "grasp":
+        name = cmd.get("body_name")
+        for obj in SCENE["objects"]:
+            if obj["name"] == name:
+                original_z = obj["position"][2]
+                SCENE["holding"] = name
+                # Simulate the object being lifted
+                new_pos = [obj["position"][0], obj["position"][1], obj["position"][2] + 0.2]
+                obj["position"] = new_pos
+                SCENE["end_effector"] = new_pos
+                print(f"  🤖 Grasped {name}")
+                return {
+                    "success": True,
+                    "holding": name,
+                    "original_z": original_z,
+                    "new_z": new_pos[2],
+                    "message": f"Successfully grasped {name}"
+                }
+        return {"success": False, "error": f"Object '{name}' not found"}
+
     elif action == "place_at":
         target = cmd.get("target", [0, 0, 0])
         if SCENE["holding"]:

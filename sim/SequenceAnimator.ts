@@ -49,6 +49,9 @@ export class SequenceAnimator {
     // Callback to notify app when the entire sequence is finished
     private onFinished?: () => void;
 
+    // If true, stop after lift (step 7) instead of going to tray
+    graspOnly = false;
+
     constructor() {
         this.names = ["Move over Cube", "Hover", "Open", "Lower", "Wait", "Grasp", "Wait", "Lift", "Move to Tray", "Lower", "Wait", "Release", "Wait", "Lift", "Return Home"];
     }
@@ -93,7 +96,8 @@ export class SequenceAnimator {
         }
 
         // If `init` was called, `trayId` is set. 
-        if (this.trayId === -1) return; // No drop zone
+        // Only require a tray if we're doing full pick-and-place (not graspOnly)
+        if (this.trayId === -1 && !this.graspOnly) return; // No drop zone
 
         // Safety check
         if (this.useLivePosition && this.cubeIds.length === 0) return;
@@ -118,6 +122,7 @@ export class SequenceAnimator {
         this.step = 0;
         this.curCubeIdx = 0;
         this.droppedCount = 0;
+        this.graspOnly = false;
         this.gripperVal = 0;
     }
 
@@ -267,6 +272,14 @@ export class SequenceAnimator {
             case 7: // Lift
                 this.duration=2*mul; this.targetPos.set(cPos.x, cPos.y, cPos.z+0.2); this.targetQuat.copy(downQuat); this.gripperVal=0; break;
             case 8: // Move to Tray
+                // If graspOnly mode, skip the tray placement and finish here
+                if (this.graspOnly) {
+                    this.running = false;
+                    this.step = 0;
+                    this.curCubeIdx = 0;
+                    if (this.onFinished) this.onFinished();
+                    return;
+                }
                 this.duration=8*mul; this.targetPos.set(dropPos.x, dropPos.y, hoverZ); this.targetQuat.copy(downQuat); this.gripperVal=0; break;
             case 9: // Lower to drop position
                 this.duration=2*mul; this.targetPos.set(dropPos.x, dropPos.y, dropZ); this.targetQuat.copy(downQuat); this.gripperVal=0; break;

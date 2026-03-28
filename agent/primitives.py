@@ -160,6 +160,23 @@ async def pick_up(body_name: str) -> dict:
     })
 
 
+async def grasp(body_name: str) -> dict:
+    """Grasp an object and hold it (no tray placement).
+    Uses the full animated sequence for proper IK + gripper control,
+    but stops after lifting instead of moving to a tray.
+    
+    Args:
+        body_name: Name of the object to grasp.
+    
+    Returns:
+        dict with 'success' bool, 'holding' body name, and verification data.
+    """
+    return await send_command({
+        "action": "grasp",
+        "body_name": body_name
+    })
+
+
 async def place_at(x: float, y: float, z: float) -> dict:
     """Place the currently held object at the target position.
     
@@ -223,6 +240,11 @@ PRIMITIVES = {
         "fn": pick_up,
         "signature": "pick_up(body_name: str) -> dict",
         "description": "Pick up an object by name (moves to it, grasps, lifts)."
+    },
+    "grasp": {
+        "fn": grasp,
+        "signature": "grasp(body_name: str) -> dict",
+        "description": "Grasp an object and hold it — uses full animated sequence with proper IK + gripper control, but stops after lifting (no tray placement). Verifies the object actually lifted."
     },
     "place_at": {
         "fn": place_at,

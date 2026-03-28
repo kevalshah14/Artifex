@@ -31,6 +31,7 @@ export class SimBridge {
             move_to: (cmd) => this.handleMoveTo(cmd),
             set_gripper: (cmd) => this.handleSetGripper(cmd),
             pick_up: (cmd) => this.handlePickUp(cmd),
+            grasp: (cmd) => this.handleGrasp(cmd),
             place_at: (cmd) => this.handlePlaceAt(cmd),
             step: (cmd) => this.handleStep(cmd),
             eval_tool: (cmd) => this.handleEvalTool(cmd),
@@ -237,6 +238,37 @@ export class SimBridge {
         return new Promise((resolve) => {
             sim.pickupItems([pos], [0], () => {
                 resolve({ success: true, holding: bodyName });
+            });
+        });
+    }
+
+    private async handleGrasp(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel || !sim.mjData) return { success: false, error: 'Sim not ready' };
+
+        const bodyName = cmd.body_name as string;
+        const bodyId = this.findBodyId(bodyName);
+        if (bodyId === null) return { success: false, error: `Body '${bodyName}' not found` };
+
+        const pos = new THREE.Vector3(
+            sim.mjData.xpos[bodyId * 3],
+            sim.mjData.xpos[bodyId * 3 + 1],
+            sim.mjData.xpos[bodyId * 3 + 2]
+        );
+
+        // Grasp and hold (no tray placement)
+        return new Promise((resolve) => {
+            sim.graspObject(pos, () => {
+                // Verify grasp by checking if object lifted
+                const newZ = sim.mjData!.xpos[bodyId * 3 + 2];
+                const lifted = newZ > pos.z + 0.05;
+                resolve({
+                    success: lifted,
+                    holding: lifted ? bodyName : null,
+                    original_z: pos.z,
+                    new_z: newZ,
+                    message: lifted ? `Successfully grasped ${bodyName}` : `Grasp failed — ${bodyName} did not lift`
+                });
             });
         });
     }

@@ -306,6 +306,7 @@ export class MujocoSim {
     pickupItems(positions: THREE.Vector3[], markerIds: number[], onFinished?: () => void) {
         if (this.sequenceAnimator && this.mjData) {
             this.ikSys.syncToSite(this.mjData);
+            this.sequenceAnimator.graspOnly = false;
             this.sequenceAnimator.start(
                 this.ikSys.target, 
                 this.mjData, 
@@ -314,6 +315,23 @@ export class MujocoSim {
                 (markerId) => {
                     this.renderSys.removeMarkerById(markerId);
                 },
+                onFinished
+            );
+            this.setIkEnabled(false);
+        }
+    }
+
+    /** Grasp an object and hold it (no tray placement). Returns the grasp position. */
+    graspObject(position: THREE.Vector3, onFinished?: () => void) {
+        if (this.sequenceAnimator && this.mjData) {
+            this.ikSys.syncToSite(this.mjData);
+            this.sequenceAnimator.graspOnly = true;
+            this.sequenceAnimator.start(
+                this.ikSys.target,
+                this.mjData,
+                this.ikSys,
+                { positions: [position], markerIds: [0] },
+                undefined,
                 onFinished
             );
             this.setIkEnabled(false);
