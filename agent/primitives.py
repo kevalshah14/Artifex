@@ -232,6 +232,111 @@ async def capture_scene_image() -> dict:
     return await send_command({"action": "capture_image"})
 
 
+async def add_object(name: str, x: float, y: float, z: float,
+                     shape: str = "box", color: str = "red",
+                     size: float = 0.02) -> dict:
+    """Add a new object to the scene.
+
+    Args:
+        name: Unique name (e.g. 'sphere_1', 'my_box').
+        x, y, z: Position in world frame.
+        shape: One of 'box', 'sphere', 'cylinder', 'capsule', 'ellipsoid'.
+        color: Color name (red, green, blue, yellow, cyan, purple, orange, white, black, pink).
+        size: Characteristic half-extent / radius (default 0.02).
+
+    Returns:
+        dict with 'success', 'added', 'shape', 'position', 'color'.
+    """
+    return await send_command({
+        "action": "add_object",
+        "name": name,
+        "position": [x, y, z],
+        "shape": shape,
+        "color": color,
+        "size": size,
+    })
+
+
+async def add_custom_object(name: str, x: float, y: float, z: float, body_xml: str) -> dict:
+    """Add a custom-shaped object by providing raw MuJoCo MJCF XML for the geom(s).
+
+    The body_xml should contain one or more <geom .../> elements that together
+    form the desired shape.  A <freejoint/> is added automatically.
+
+    Args:
+        name: Unique body name.
+        x, y, z: Position in world frame.
+        body_xml: Inner MJCF XML string (geom elements only, no <body> wrapper).
+
+    Returns:
+        dict with 'success' and 'added' name.
+    """
+    return await send_command({
+        "action": "add_custom_object",
+        "name": name,
+        "position": [x, y, z],
+        "body_xml": body_xml,
+    })
+
+
+async def remove_body(body_name: str) -> dict:
+    """Remove a body from the scene entirely.
+
+    Args:
+        body_name: Name of the body to remove.
+
+    Returns:
+        dict with 'success' and 'removed' name.
+    """
+    return await send_command({
+        "action": "remove_body",
+        "body_name": body_name,
+    })
+
+
+async def set_body_color(body_name: str, color: str) -> dict:
+    """Change the color of an existing body.
+
+    Args:
+        body_name: Name of the body.
+        color: Color name (red, green, blue, yellow, cyan, purple, orange, white, black, pink).
+
+    Returns:
+        dict with 'success', 'body_name', 'new_color'.
+    """
+    return await send_command({
+        "action": "set_body_color",
+        "body_name": body_name,
+        "color": color,
+    })
+
+
+async def move_body(body_name: str, x: float, y: float, z: float) -> dict:
+    """Teleport a body to a new position (instant, no physics).
+
+    Args:
+        body_name: Name of the body to move.
+        x, y, z: New position in world frame.
+
+    Returns:
+        dict with 'success', 'body_name', 'new_position'.
+    """
+    return await send_command({
+        "action": "move_body",
+        "body_name": body_name,
+        "position": [x, y, z],
+    })
+
+
+async def reset_scene() -> dict:
+    """Reset the simulation to its initial state (re-randomizes cubes).
+
+    Returns:
+        dict with 'success' and 'message'.
+    """
+    return await send_command({"action": "reset_scene"})
+
+
 # Registry of all primitives for the agent to reference
 PRIMITIVES = {
     "move_to": {
@@ -278,5 +383,35 @@ PRIMITIVES = {
         "fn": step_sim,
         "signature": "step_sim(n_steps: int = 100) -> dict",
         "description": "Advance simulation by n physics steps."
+    },
+    "add_object": {
+        "fn": add_object,
+        "signature": "add_object(name: str, x: float, y: float, z: float, shape: str = 'box', color: str = 'red', size: float = 0.02) -> dict",
+        "description": "Add a new object to the scene. Shapes: box, sphere, cylinder, capsule, ellipsoid. Colors: red, green, blue, yellow, cyan, purple, orange, white, black, pink."
+    },
+    "add_custom_object": {
+        "fn": add_custom_object,
+        "signature": "add_custom_object(name: str, x: float, y: float, z: float, body_xml: str) -> dict",
+        "description": "Add a custom-shaped object by composing raw MuJoCo MJCF geom elements. Use for complex objects like plates, bowls, tables, L-shapes, etc."
+    },
+    "remove_body": {
+        "fn": remove_body,
+        "signature": "remove_body(body_name: str) -> dict",
+        "description": "Remove a body from the scene entirely (modifies XML and reloads)."
+    },
+    "set_body_color": {
+        "fn": set_body_color,
+        "signature": "set_body_color(body_name: str, color: str) -> dict",
+        "description": "Change the color of an existing body. Colors: red, green, blue, yellow, cyan, purple, orange, white, black, pink."
+    },
+    "move_body": {
+        "fn": move_body,
+        "signature": "move_body(body_name: str, x: float, y: float, z: float) -> dict",
+        "description": "Teleport a body instantly to a new position (no physics, just sets qpos)."
+    },
+    "reset_scene": {
+        "fn": reset_scene,
+        "signature": "reset_scene() -> dict",
+        "description": "Reset the simulation to its initial state with randomized cube positions."
     },
 }

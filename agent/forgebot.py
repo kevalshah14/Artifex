@@ -106,6 +106,75 @@ MANIPULATION STRATEGY
     • If grasp fails, try again — the object may have shifted.
 
 ════════════════════════════════════════
+SCENE MODIFICATION
+════════════════════════════════════════
+  Simple shapes (one call):
+    • add_object(name, x, y, z, shape, color, size)
+        Shapes : box, sphere, cylinder, capsule, ellipsoid
+        Colors : red, green, blue, yellow, cyan, purple, orange, white, black, pink
+        size   : half-extent / radius (default 0.02). Place on table: z ≈ 0.04
+
+  Custom / composite objects — use when the user asks for any real-world
+  object (plate, bowl, mug, table, chair, ramp, wall, etc.):
+    • add_custom_object(name, x, y, z, body_xml)
+      body_xml = raw MuJoCo MJCF geom elements (no <body> wrapper, <freejoint/>
+      is added automatically).
+
+      MJCF geom reference:
+        type     | size attribute             | notes
+        ---------|----------------------------|---------------------------
+        box      | "sx sy sz"  (half-extents) | rectangular solid
+        sphere   | "r"                        | ball
+        cylinder | "r h"  (radius, half-h)    | round tube
+        capsule  | "r h"  (radius, half-h)    | rounded-end cylinder
+        ellipsoid| "rx ry rz" (semi-axes)     | squished sphere
+
+      Each <geom> can have:
+        pos="x y z"        — offset from body origin
+        rgba="r g b a"     — color (0-1 floats)
+        mass="m"           — mass in kg
+        condim="4"         — contact dimensions
+        friction="1 0.5 0.01"
+
+      ── Example: plate (flat cylinder) ──
+        add_custom_object("plate", 0, 0, 0.025, body_xml=
+          '<geom type="cylinder" size="0.06 0.003" rgba="0.95 0.95 0.9 1" mass="0.1" condim="4" friction="1 0.5 0.01"/>')
+
+      ── Example: bowl (base + angled ring of capsules) ──
+        add_custom_object("bowl", 0.1, 0, 0.03, body_xml=
+          '<geom type="cylinder" size="0.04 0.003" rgba="0.8 0.5 0.2 1" mass="0.05" condim="4" friction="1 0.5 0.01"/>'
+          '<geom type="capsule" size="0.004 0.025" pos="0.035 0 0.015" euler="0 20 0" rgba="0.8 0.5 0.2 1" mass="0.01"/>'
+          '<geom type="capsule" size="0.004 0.025" pos="-0.035 0 0.015" euler="0 -20 0" rgba="0.8 0.5 0.2 1" mass="0.01"/>'
+          '<geom type="capsule" size="0.004 0.025" pos="0 0.035 0.015" euler="-20 0 0" rgba="0.8 0.5 0.2 1" mass="0.01"/>'
+          '<geom type="capsule" size="0.004 0.025" pos="0 -0.035 0.015" euler="20 0 0" rgba="0.8 0.5 0.2 1" mass="0.01"/>')
+
+      ── Example: small table (top + 4 legs) ──
+        add_custom_object("mini_table", 0, 0.2, 0.06, body_xml=
+          '<geom type="box" size="0.06 0.06 0.004" pos="0 0 0.04" rgba="0.6 0.35 0.15 1" mass="0.1"/>'
+          '<geom type="cylinder" size="0.005 0.04" pos="0.045 0.045 0" rgba="0.6 0.35 0.15 1" mass="0.02"/>'
+          '<geom type="cylinder" size="0.005 0.04" pos="-0.045 0.045 0" rgba="0.6 0.35 0.15 1" mass="0.02"/>'
+          '<geom type="cylinder" size="0.005 0.04" pos="0.045 -0.045 0" rgba="0.6 0.35 0.15 1" mass="0.02"/>'
+          '<geom type="cylinder" size="0.005 0.04" pos="-0.045 -0.045 0" rgba="0.6 0.35 0.15 1" mass="0.02"/>')
+
+      ── Example: ramp ──
+        add_custom_object("ramp", -0.1, 0, 0.02, body_xml=
+          '<geom type="box" size="0.06 0.04 0.015" euler="0 15 0" rgba="0.4 0.4 0.4 1" mass="0.2" condim="4" friction="1 0.5 0.01"/>')
+
+      TIPS:
+        - Think about what real-world shape looks like, then approximate with
+          MuJoCo primitives (combinations of boxes, cylinders, capsules, spheres).
+        - Use 'pos' on child geoms for offsets from the body center.
+        - Use 'euler' (degrees) for rotations.
+        - Keep mass realistic (~0.01-0.5 kg for tabletop objects).
+        - Test z so the object sits correctly on the table surface.
+
+  Other scene commands:
+    • remove_body(body_name)       — remove any body
+    • set_body_color(name, color)  — change color instantly
+    • move_body(name, x, y, z)     — teleport a body
+    • reset_scene()                — reset to initial state
+
+════════════════════════════════════════
 CAPABILITY HIERARCHY
 ════════════════════════════════════════
   Primitives  →  Tools  →  Skills
@@ -141,7 +210,9 @@ WRITING CODE RULES
   • All functions MUST be `async def`.
   • Available in namespace (no imports needed):
       Primitives : move_to, set_gripper, get_body_position, get_body_color,
-                   get_all_objects, pick_up, grasp, place_at, step_sim
+                   get_all_objects, pick_up, grasp, place_at, step_sim,
+                   add_object, add_custom_object, remove_body,
+                   set_body_color, move_body, reset_scene
       Invented   : all registered tools/skills by name
       Stdlib     : asyncio, json
   • Always return {{"success": bool, ...}}.
@@ -731,6 +802,12 @@ class ForgeBotAgent:
             "grasp": primitives.grasp,
             "place_at": primitives.place_at,
             "step_sim": primitives.step_sim,
+            "add_object": primitives.add_object,
+            "add_custom_object": primitives.add_custom_object,
+            "remove_body": primitives.remove_body,
+            "set_body_color": primitives.set_body_color,
+            "move_body": primitives.move_body,
+            "reset_scene": primitives.reset_scene,
         }
         for tool in registry.get_invented_tools():
             if tool.fn and tool.name != exclude_name:

@@ -36,6 +36,12 @@ export class SimBridge {
             step: (cmd) => this.handleStep(cmd),
             eval_tool: (cmd) => this.handleEvalTool(cmd),
             capture_image: (cmd) => this.handleCaptureImage(cmd),
+            add_object: (cmd) => this.handleAddObject(cmd),
+            add_custom_object: (cmd) => this.handleAddCustomObject(cmd),
+            remove_body: (cmd) => this.handleRemoveBody(cmd),
+            set_body_color: (cmd) => this.handleSetBodyColor(cmd),
+            move_body: (cmd) => this.handleMoveBody(cmd),
+            reset_scene: () => this.handleResetScene(),
         };
     }
 
@@ -176,13 +182,32 @@ export class SimBridge {
         const sim = this.sim;
         if (!sim?.mjModel || !sim.mjData) return { success: false, error: 'Sim not ready' };
 
+        // Collect body IDs that have a free joint (= manipulable objects)
+        const freeJointBodies = new Set<number>();
+        for (let j = 0; j < sim.mjModel.njnt; j++) {
+            if (sim.mjModel.jnt_type[j] === 0) { // mjJNT_FREE
+                freeJointBodies.add(sim.mjModel.jnt_bodyid[j]);
+            }
+        }
+
+        const GEOM_TYPES: Record<number, string> = { 0: 'plane', 2: 'sphere', 3: 'capsule', 4: 'ellipsoid', 5: 'cylinder', 6: 'box' };
+
         const objects: Array<Record<string, unknown>> = [];
-        for (let i = 0; i < sim.mjModel.nbody; i++) {
-            const name = getName(sim.mjModel, sim.mjModel.name_bodyadr[i]);
-            if (!name.startsWith('cube')) continue;
-            const pos = this.getBodyPosition(i);
-            const color = this.getBodyGeomColor(i);
-            objects.push({ name, position: pos, color, size: [0.02, 0.02, 0.02] });
+        for (const bodyId of freeJointBodies) {
+            const name = getName(sim.mjModel, sim.mjModel.name_bodyadr[bodyId]);
+            if (!name || name === 'world') continue;
+            const pos = this.getBodyPosition(bodyId);
+            const color = this.getBodyGeomColor(bodyId);
+
+            let shape = 'box';
+            for (let g = 0; g < sim.mjModel.ngeom; g++) {
+                if (sim.mjModel.geom_bodyid[g] === bodyId) {
+                    shape = GEOM_TYPES[sim.mjModel.geom_type[g]] ?? 'unknown';
+                    break;
+                }
+            }
+
+            objects.push({ name, shape, position: pos, color });
         }
         return { success: true, objects };
     }
@@ -349,5 +374,222 @@ export class SimBridge {
         } catch (e) {
             return { success: false, error: `Screenshot failed: ${e}` };
         }
+    }
+
+    // ─── Virtual FS helpers ──────────────────────────────
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    private get FS(): any { return (this.sim!.mujoco as any).FS; }
+
+    private readWorkingText(path: string): string {
+        const raw = this.FS.readFile(path, { encoding: 'utf8' });
+        return typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
+    }
+
+    private writeWorkingText(path: string, text: string) {
+        this.FS.writeFile(path, text);
+    }
+
+    // ─── Scene modification commands ─────────────────────
+
+    private colorNameToRgba(color: string): [number, number, number, number] {
+        const map: Record<string, [number, number, number, number]> = {
+            red:     [0.9, 0.15, 0.15, 1],
+            green:   [0.15, 0.85, 0.25, 1],
+            blue:    [0.15, 0.25, 0.9, 1],
+            yellow:  [0.95, 0.85, 0.1, 1],
+            cyan:    [0.1, 0.85, 0.85, 1],
+            purple:  [0.7, 0.15, 0.85, 1],
+            orange:  [1.0, 0.55, 0.1, 1],
+            white:   [0.95, 0.95, 0.95, 1],
+            black:   [0.12, 0.12, 0.12, 1],
+            pink:    [1.0, 0.4, 0.7, 1],
+        };
+        return map[color.toLowerCase()] ?? [0.5, 0.5, 0.5, 1];
+    }
+
+    /**
+     * Build the MuJoCo `size` attribute for a geom.
+     *
+     *  shape      | size meaning
+     *  -----------|---------------------------------------------------
+     *  box        | half-extents: "sx sy sz"
+     *  sphere     | radius: "r"
+     *  cylinder   | radius + half-height: "r h"
+     *  capsule    | radius + half-height: "r h"
+     *  ellipsoid  | semi-axes: "rx ry rz"
+     */
+    private geomSizeAttr(shape: string, size: number | number[]): string {
+        const s = typeof size === 'number' ? size : size[0];
+        switch (shape) {
+            case 'sphere':    return `${s}`;
+            case 'cylinder':  return `${s} ${s}`;
+            case 'capsule':   return `${s} ${s * 1.5}`;
+            case 'ellipsoid': return `${s} ${s} ${s * 1.5}`;
+            case 'box':
+            default:          return `${s} ${s} ${s}`;
+        }
+    }
+
+    private async handleAddObject(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel) return { success: false, error: 'Sim not ready' };
+
+        const name  = cmd.name as string ?? `obj_${Date.now()}`;
+        const pos   = cmd.position as number[] ?? [0, 0, 0.05];
+        const color = cmd.color as string ?? 'red';
+        const size  = (cmd.size as number) ?? 0.02;
+        const shape = (cmd.shape as string ?? 'box').toLowerCase();
+        const rgba  = this.colorNameToRgba(color);
+
+        const VALID_SHAPES = ['box', 'sphere', 'cylinder', 'capsule', 'ellipsoid'];
+        if (!VALID_SHAPES.includes(shape)) {
+            return { success: false, error: `Unsupported shape '${shape}'. Use: ${VALID_SHAPES.join(', ')}` };
+        }
+
+        try {
+            const sceneXml = this.readWorkingText('/working/scene.xml');
+
+            const sizeAttr = this.geomSizeAttr(shape, size);
+            const bodyXml =
+                `    <body name="${name}" pos="${pos[0]} ${pos[1]} ${pos[2]}">\n` +
+                `      <freejoint/>\n` +
+                `      <geom type="${shape}" size="${sizeAttr}" rgba="${rgba.join(' ')}" mass="0.05" condim="4" friction="1 0.5 0.01"/>\n` +
+                `    </body>\n`;
+
+            const modified = sceneXml.replace('</worldbody>', bodyXml + '  </worldbody>');
+            this.writeWorkingText('/working/scene.xml', modified);
+            sim.reloadFromWorkingScene();
+            await this.waitFrames(20);
+
+            return { success: true, added: name, shape, position: pos, color };
+        } catch (e) {
+            return { success: false, error: `Failed to add object: ${e}` };
+        }
+    }
+
+    private async handleAddCustomObject(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel) return { success: false, error: 'Sim not ready' };
+
+        const name = cmd.name as string;
+        const pos  = cmd.position as number[] ?? [0, 0, 0.05];
+        const innerXml = cmd.body_xml as string;
+
+        if (!name)     return { success: false, error: 'Missing name' };
+        if (!innerXml) return { success: false, error: 'Missing body_xml' };
+
+        try {
+            const sceneXml = this.readWorkingText('/working/scene.xml');
+
+            const bodyXml =
+                `    <body name="${name}" pos="${pos[0]} ${pos[1]} ${pos[2]}">\n` +
+                `      <freejoint/>\n` +
+                `      ${innerXml}\n` +
+                `    </body>\n`;
+
+            const modified = sceneXml.replace('</worldbody>', bodyXml + '  </worldbody>');
+            this.writeWorkingText('/working/scene.xml', modified);
+            sim.reloadFromWorkingScene();
+            await this.waitFrames(20);
+
+            return { success: true, added: name, position: pos };
+        } catch (e) {
+            return { success: false, error: `Failed to add custom object: ${e}` };
+        }
+    }
+
+    private async handleRemoveBody(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel) return { success: false, error: 'Sim not ready' };
+
+        const name = cmd.body_name as string;
+        if (!name) return { success: false, error: 'Missing body_name' };
+
+        try {
+            const sceneXml = this.readWorkingText('/working/scene.xml');
+
+            // Match the full <body name="NAME" ...> ... </body> block
+            const pattern = new RegExp(
+                `\\s*<body\\s+name="${name}"[^>]*>[\\s\\S]*?</body>`,
+                'm'
+            );
+            const modified = sceneXml.replace(pattern, '');
+
+            if (modified === sceneXml) {
+                return { success: false, error: `Body '${name}' not found in scene XML` };
+            }
+
+            this.writeWorkingText('/working/scene.xml', modified);
+            sim.reloadFromWorkingScene();
+            await this.waitFrames(20);
+
+            return { success: true, removed: name };
+        } catch (e) {
+            return { success: false, error: `Failed to remove body: ${e}` };
+        }
+    }
+
+    private async handleSetBodyColor(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel) return { success: false, error: 'Sim not ready' };
+
+        const name = cmd.body_name as string;
+        const color = cmd.color as string;
+        if (!name || !color) return { success: false, error: 'Missing body_name or color' };
+
+        const bodyId = this.findBodyId(name);
+        if (bodyId === null) return { success: false, error: `Body '${name}' not found` };
+
+        const rgba = this.colorNameToRgba(color);
+
+        for (let g = 0; g < sim.mjModel.ngeom; g++) {
+            if (sim.mjModel.geom_bodyid[g] === bodyId) {
+                sim.mjModel.geom_rgba[g * 4]     = rgba[0];
+                sim.mjModel.geom_rgba[g * 4 + 1] = rgba[1];
+                sim.mjModel.geom_rgba[g * 4 + 2] = rgba[2];
+                sim.mjModel.geom_rgba[g * 4 + 3] = rgba[3];
+            }
+        }
+
+        return { success: true, body_name: name, new_color: color };
+    }
+
+    private async handleMoveBody(cmd: Record<string, unknown>): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel || !sim.mjData) return { success: false, error: 'Sim not ready' };
+
+        const name = cmd.body_name as string;
+        const pos = cmd.position as number[];
+        if (!name || !pos) return { success: false, error: 'Missing body_name or position' };
+
+        const bodyId = this.findBodyId(name);
+        if (bodyId === null) return { success: false, error: `Body '${name}' not found` };
+
+        // Find the free joint for this body and set its qpos
+        for (let j = 0; j < sim.mjModel.njnt; j++) {
+            if (sim.mjModel.jnt_bodyid[j] === bodyId && sim.mjModel.jnt_type[j] === 0) {
+                // type 0 = mjJNT_FREE: qpos = [x, y, z, qw, qx, qy, qz]
+                const addr = sim.mjModel.jnt_qposadr[j];
+                sim.mjData.qpos[addr]     = pos[0];
+                sim.mjData.qpos[addr + 1] = pos[1];
+                sim.mjData.qpos[addr + 2] = pos[2];
+                sim.mujoco.mj_forward(sim.mjModel, sim.mjData);
+                await this.waitFrames(5);
+                return { success: true, body_name: name, new_position: pos };
+            }
+        }
+
+        return { success: false, error: `Body '${name}' has no free joint — cannot teleport` };
+    }
+
+    private async handleResetScene(): Promise<Record<string, unknown>> {
+        const sim = this.sim;
+        if (!sim?.mjModel) return { success: false, error: 'Sim not ready' };
+
+        sim.reset();
+        await this.waitFrames(30);
+
+        return { success: true, message: 'Scene reset to initial state' };
     }
 }
